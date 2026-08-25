@@ -1,0 +1,32 @@
+# секреты
+.env
+*.env
+!.env.example
+
+# база
+*.db
+*.sqlite
+*.sqlite3
+data/
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# логи
+*.log
