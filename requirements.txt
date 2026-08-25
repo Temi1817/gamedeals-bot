@@ -1,0 +1,8 @@
+aiogram>=3.15,<4.0
+httpx>=0.28,<0.29
+SQLAlchemy[asyncio]>=2.0.36,<2.1
+aiosqlite>=0.20
+alembic>=1.14
+APScheduler>=3.11,<4.0
+pydantic-settings>=2.7
+structlog>=24.4

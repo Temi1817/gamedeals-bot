@@ -1,0 +1,31 @@
+[project]
+name = "gamedeals-bot"
+version = "0.1.0"
+description = "Telegram-бот мониторинга цен на PC-игры (регион KZ)"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q"
+filterwarnings = ["error::DeprecationWarning:bot.*"]
+
+[tool.mypy]
+python_version = "3.11"
+packages = ["bot"]
+strict = true
+warn_unused_ignores = false
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["apscheduler.*"]
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 90
+target-version = "py311"
+exclude = ["migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "C4", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]  # кириллица в строках — это не опечатки
