@@ -1,0 +1,136 @@
+"""Доменные модели.
+
+Клиенты API возвращают только эти типы — хендлеры не должны знать, из
+какого источника пришли данные и как выглядит его JSON.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import datetime
+from decimal import Decimal
+
+# Источник данных. Влияет на то, как трактовать цену: `cheapshark` отдаёт
+# доллары и ключи реселлеров, остальные — цену магазина в валюте региона.
+Source = str
+
+ITAD = "itad"
+STEAM = "steam"
+EPIC = "epic"
+CHEAPSHARK = "cheapshark"
+
+
+@dataclass(frozen=True, slots=True)
+class Game:
+    """Игра без привязки к источнику. Идентификаторов может быть несколько."""
+
+    title: str
+    itad_id: str | None = None
+    steam_appid: int | None = None
+    cheapshark_id: str | None = None
+    slug: str | None = None
+    image_url: str | None = None
+
+    @property
+    def key(self) -> str:
+        """Стабильный ключ для callback-данных и кэша."""
+        if self.itad_id:
+            return f"i:{self.itad_id}"
+        if self.steam_appid:
+            return f"s:{self.steam_appid}"
+        if self.cheapshark_id:
+            return f"c:{self.cheapshark_id}"
+        return f"t:{self.title.lower()}"
+
+
+@dataclass(frozen=True, slots=True)
+class Shop:
+    """Магазин: имя для показа плюс идентификатор внутри источника."""
+
+    id: str
+    name: str
+    source: Source = ITAD
+
+
+@dataclass(frozen=True, slots=True)
+class Offer:
+    """Одно предложение: цена конкретной игры в конкретном магазине."""
+
+    shop: Shop
+    price: Decimal
+    currency: str
+    regular_price: Decimal | None = None
+    cut: int = 0
+    url: str | None = None
+    # CheapShark торгует в основном ключами реселлеров — такие цены
+    # помечаем, чтобы не выдавать их за цену магазина
+    is_reseller: bool = False
+    # цена не в валюте региона пользователя (тот же CheapShark — всегда USD)
+    approximate: bool = False
+
+    @property
+    def is_free(self) -> bool:
+        return self.price <= 0
+
+    @property
+    def savings(self) -> Decimal | None:
+        """Сколько экономим против обычной цены."""
+        if self.regular_price is None or self.regular_price <= self.price:
+            return None
+        return self.regular_price - self.price
+
+
+@dataclass(frozen=True, slots=True)
+class HistoricalLow:
+    """Исторический минимум цены."""
+
+    price: Decimal
+    currency: str
+    at: datetime | None = None
+    shop: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class GameDetails:
+    """Всё, что нужно для карточки игры."""
+
+    game: Game
+    offers: list[Offer] = field(default_factory=list)
+    historical_low: HistoricalLow | None = None
+    # источники, которые реально ответили — чтобы честно сказать
+    # пользователю, если часть данных недоступна
+    sources: tuple[Source, ...] = ()
+
+    @property
+    def best_offer(self) -> Offer | None:
+        """Самое дешёвое предложение в валюте региона.
+
+        Реселлеров и цены в чужой валюте в расчёт не берём: сравнивать
+        доллары с тенге без курса нельзя.
+        """
+        native = [o for o in self.offers if not o.approximate]
+        return min(native, key=lambda o: o.price) if native else None
+
+
+@dataclass(frozen=True, slots=True)
+class Deal:
+    """Позиция в списке скидок (`/deals`, фильтр по цене)."""
+
+    game: Game
+    offer: Offer
+
+
+@dataclass(frozen=True, slots=True)
+class FreeGame:
+    """Бесплатная раздача."""
+
+    title: str
+    url: str | None = None
+    image_url: str | None = None
+    description: str | None = None
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    original_price: Decimal | None = None
+    currency: str = "KZT"
+    # true — раздача ещё не началась, а только анонсирована
+    upcoming: bool = False
