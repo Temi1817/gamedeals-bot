@@ -8,14 +8,18 @@
 from __future__ import annotations
 
 import pytest
+from aiogram.types import InlineKeyboardMarkup
 
+from bot.keyboards.common import ShopCB, shops_keyboard
 from bot.keyboards.games import (
+    CUT_PRESETS,
     MAX_KEY_LENGTH,
     DealsCB,
     GameCB,
     HistoryCB,
     UnwatchCB,
     WatchCB,
+    deals_keyboard,
     fits_callback,
     game_card_keyboard,
     search_keyboard,
@@ -140,3 +144,93 @@ class TestWatchlistKeyboard:
         button = watchlist_keyboard([(1, "И" * 80)]).inline_keyboard[0][0]
 
         assert len(button.text) <= 43
+
+
+class TestDealsKeyboard:
+    def _labels(self, markup: InlineKeyboardMarkup) -> list[str]:
+        return [b.text for row in markup.inline_keyboard for b in row]
+
+    def test_shows_all_cut_presets(self) -> None:
+        markup = deals_keyboard(page=0, min_cut=0, price="", has_more=False)
+        labels = self._labels(markup)
+
+        assert any("любая" in text for text in labels)
+        for cut in CUT_PRESETS:
+            if cut:
+                assert any(f"от {cut}%" in text for text in labels)
+
+    def test_active_preset_is_marked(self) -> None:
+        markup = deals_keyboard(page=0, min_cut=75, price="", has_more=False)
+
+        assert "✅ от 75%" in self._labels(markup)
+
+    def test_next_button_only_when_more(self) -> None:
+        with_more = self._labels(
+            deals_keyboard(page=0, min_cut=0, price="", has_more=True)
+        )
+        without = self._labels(
+            deals_keyboard(page=0, min_cut=0, price="", has_more=False)
+        )
+
+        assert any("Дальше" in t for t in with_more)
+        assert not any("Дальше" in t for t in without)
+
+    def test_back_button_only_after_first_page(self) -> None:
+        first = self._labels(deals_keyboard(page=0, min_cut=0, price="", has_more=True))
+        second = self._labels(deals_keyboard(page=1, min_cut=0, price="", has_more=True))
+
+        assert not any("Назад" in t for t in first)
+        assert any("Назад" in t for t in second)
+
+    def test_price_survives_preset_switch(self) -> None:
+        """Переключение процента не должно терять уже заданный потолок цены."""
+        markup = deals_keyboard(page=0, min_cut=0, price="5000", has_more=False)
+        data = [b.callback_data for row in markup.inline_keyboard for b in row]
+
+        assert all(DealsCB.unpack(d).price == "5000" for d in data if d)
+
+    def test_callback_data_fits_limit(self) -> None:
+        markup = deals_keyboard(page=99, min_cut=90, price="123456.78", has_more=True)
+
+        for row in markup.inline_keyboard:
+            for button in row:
+                assert button.callback_data is not None
+                assert len(button.callback_data.encode()) <= 64
+
+
+class TestShopsKeyboard:
+    def _labels(self, selected: set[str]) -> list[str]:
+        markup = shops_keyboard(selected)
+        return [b.text for row in markup.inline_keyboard for b in row]
+
+    def test_lists_known_shops(self) -> None:
+        labels = self._labels(set())
+
+        assert any("Steam" in t for t in labels)
+        assert any("GOG" in t for t in labels)
+        assert any("Все магазины" in t for t in labels)
+
+    def test_selected_shops_are_ticked(self) -> None:
+        labels = self._labels({"steam"})
+
+        assert "✅ Steam" in labels
+        assert "▫️ GOG" in labels
+
+    def test_all_is_ticked_when_nothing_selected(self) -> None:
+        def ticked(labels: list[str]) -> bool:
+            return any(t.startswith("✅") and "Все магазины" in t for t in labels)
+
+        assert ticked(self._labels(set()))
+        assert not ticked(self._labels({"steam"}))
+
+    def test_reset_button_carries_empty_key(self) -> None:
+        markup = shops_keyboard({"steam"})
+        reset = next(
+            b
+            for row in markup.inline_keyboard
+            for b in row
+            if b.text and "Все магазины" in b.text
+        )
+
+        assert reset.callback_data is not None
+        assert ShopCB.unpack(reset.callback_data).key == ""

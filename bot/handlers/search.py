@@ -20,6 +20,7 @@ from bot.keyboards.games import (
 )
 from bot.services.aggregator import Aggregator, _currency_for
 from bot.services.models import GameDetails
+from bot.services.shops import parse_selection
 from bot.utils import cards
 from bot.utils.logging import get_logger
 
@@ -97,7 +98,9 @@ async def on_game_selected(
         await callback.answer(NOT_FOUND_CARD, show_alert=True)
         return
 
-    details = await aggregator.game_details(game, country=user.country)
+    details = await aggregator.game_details(
+        game, country=user.country, shops=parse_selection(user.preferred_shops)
+    )
     await _remember(session, details, user.country)
 
     watched = await _is_watched(session, user, details)

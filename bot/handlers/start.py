@@ -13,9 +13,12 @@ from bot.keyboards.common import (
     COUNTRIES,
     CountryCB,
     NotifyCB,
+    ShopCB,
     country_keyboard,
     settings_keyboard,
+    shops_keyboard,
 )
+from bot.services.shops import dump_selection, parse_selection, title_for
 from bot.utils.formatting import escape
 from bot.utils.logging import get_logger
 
@@ -57,6 +60,14 @@ def _country_label(code: str) -> str:
     return COUNTRIES.get(code, code)
 
 
+def _settings_text(user: User) -> str:
+    return (
+        "⚙️ <b>Настройки</b>\n\n"
+        f"Регион: {_country_label(user.country)}\n"
+        f"Магазины: {_shops_summary(user)}"
+    )
+
+
 @router.message(CommandStart())
 async def cmd_start(message: Message, user: User) -> None:
     name = escape(message.from_user.first_name if message.from_user else "друг")
@@ -75,7 +86,7 @@ async def cmd_help(message: Message) -> None:
 @router.message(Command("settings"))
 async def cmd_settings(message: Message, user: User) -> None:
     await message.answer(
-        f"⚙️ <b>Настройки</b>\n\nРегион: {_country_label(user.country)}",
+        _settings_text(user),
         reply_markup=settings_keyboard(user.country, user.notify_enabled),
     )
 
@@ -102,7 +113,7 @@ async def set_country(
 
     if isinstance(callback.message, Message):
         await callback.message.edit_text(
-            f"⚙️ <b>Настройки</b>\n\nРегион: {_country_label(user.country)}",
+            _settings_text(user),
             reply_markup=settings_keyboard(user.country, user.notify_enabled),
         )
     await callback.answer(f"Регион: {callback_data.code}")
@@ -124,6 +135,66 @@ async def toggle_notify(
     await callback.answer(
         "Уведомления включены" if callback_data.enabled else "Уведомления выключены"
     )
+
+
+SHOPS_PROMPT = """🏬 <b>Магазины</b>
+
+Отмечай те, что тебе интересны — остальные пропадут из карточек, скидок
+и уведомлений. Ничего не отмечено значит «показывать все»."""
+
+
+def _shops_summary(user: User) -> str:
+    selected = parse_selection(user.preferred_shops)
+    if not selected:
+        return "все"
+    names = sorted(title_for(key) for key in selected)
+    return ", ".join(names) if len(names) <= 3 else f"{len(names)} шт."
+
+
+@router.callback_query(lambda c: c.data == "settings:shops")
+async def open_shops_picker(callback: CallbackQuery, user: User) -> None:
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            SHOPS_PROMPT,
+            reply_markup=shops_keyboard(parse_selection(user.preferred_shops)),
+        )
+    await callback.answer()
+
+
+@router.callback_query(ShopCB.filter())
+async def toggle_shop(
+    callback: CallbackQuery,
+    callback_data: ShopCB,
+    user: User,
+    session: AsyncSession,
+) -> None:
+    selected = parse_selection(user.preferred_shops)
+
+    if not callback_data.key:
+        selected.clear()  # «все магазины» — это пустой выбор
+    elif callback_data.key in selected:
+        selected.discard(callback_data.key)
+    else:
+        selected.add(callback_data.key)
+
+    user.preferred_shops = dump_selection(selected)
+    await session.flush()
+
+    if isinstance(callback.message, Message):
+        await callback.message.edit_reply_markup(
+            reply_markup=shops_keyboard(selected)
+        )
+    await callback.answer("Все магазины" if not selected else f"Выбрано: {len(selected)}")
+
+
+@router.callback_query(lambda c: c.data == "settings:back")
+async def back_to_settings(callback: CallbackQuery, user: User) -> None:
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            _settings_text(user),
+            reply_markup=settings_keyboard(user.country, user.notify_enabled),
+        )
+    await callback.answer()
 
 
 @router.callback_query(lambda c: c.data == "close")

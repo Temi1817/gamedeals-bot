@@ -294,6 +294,7 @@ class ItadClient:
         min_cut: int = 0,
         max_price: Decimal | None = None,
         games_only: bool = True,
+        shops: list[int] | None = None,
     ) -> tuple[list[Deal], int | None]:
         """Актуальные скидки. Возвращает список и offset следующей страницы.
 
@@ -307,8 +308,9 @@ class ItadClient:
         тенге делает вызывающий код.
         """
         filters = _deal_filter(min_cut, max_price, games_only)
+        shop_ids = ",".join(str(s) for s in shops) if shops else ""
         key = (
-            f"itad:deals:{country}:{sort}:{limit}:{offset}:"
+            f"itad:deals:{country}:{sort}:{limit}:{offset}:{shop_ids}:"
             f"{json.dumps(filters, sort_keys=True)}"
         )
 
@@ -317,6 +319,10 @@ class ItadClient:
         )
         if filters:
             params["filter"] = json.dumps(filters)
+        # фильтруем на стороне API: иначе страницы забиваются отсеянными
+        # магазинами и приходят полупустыми
+        if shop_ids:
+            params["shops"] = shop_ids
 
         async def fetch() -> dict[str, Any]:
             data = await self.api.get_json(f"{BASE_URL}/deals/v2", params=params)

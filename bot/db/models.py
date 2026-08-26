@@ -37,6 +37,9 @@ class User(Base):
     username: Mapped[str | None] = mapped_column(String(64), default=None)
     country: Mapped[str] = mapped_column(String(2), default="KZ")
     notify_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Канонические ключи магазинов через запятую («steam,gog»).
+    # Пустая строка означает «все магазины» — так по умолчанию.
+    preferred_shops: Mapped[str] = mapped_column(String(300), default="")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
     )

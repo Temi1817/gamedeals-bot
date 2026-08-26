@@ -8,11 +8,11 @@ from decimal import Decimal, InvalidOperation
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
-from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot.db.models import User
-from bot.keyboards.games import DealsCB
+from bot.keyboards.games import DealsCB, deals_keyboard
 from bot.services.aggregator import Aggregator, _currency_for
+from bot.services.shops import parse_selection
 from bot.utils import cards
 from bot.utils.formatting import format_price
 from bot.utils.logging import get_logger
@@ -41,35 +41,6 @@ def parse_price(text: str) -> Decimal | None:
     return price if price > 0 else None
 
 
-def deals_keyboard(
-    *, page: int, min_cut: int, max_price: Decimal | None, has_more: bool
-) -> object:
-    builder = InlineKeyboardBuilder()
-    price_arg = str(max_price) if max_price is not None else ""
-
-    for cut in (50, 75):
-        mark = "✅ " if min_cut == cut else ""
-        builder.button(
-            text=f"{mark}скидка >{cut}%",
-            callback_data=DealsCB(page=0, cut=0 if min_cut == cut else cut,
-                                  price=price_arg),
-        )
-
-    if has_more:
-        builder.button(
-            text="Следующая страница ▶️",
-            callback_data=DealsCB(page=page + 1, cut=min_cut, price=price_arg),
-        )
-    if page > 0:
-        builder.button(
-            text="◀️ Назад",
-            callback_data=DealsCB(page=page - 1, cut=min_cut, price=price_arg),
-        )
-
-    builder.adjust(2)
-    return builder.as_markup()
-
-
 async def _show_deals(
     target: Message,
     user: User,
@@ -88,6 +59,7 @@ async def _show_deals(
         offset=page * PAGE_SIZE,
         min_cut=min_cut,
         max_price=max_price,
+        shops=parse_selection(user.preferred_shops),
     )
 
     text = cards.deals_list(deals, page, currency)
@@ -95,16 +67,19 @@ async def _show_deals(
         text = f"{text}\n\n<i>Потолок: {format_price(max_price, currency)}</i>"
 
     markup = deals_keyboard(
-        page=page, min_cut=min_cut, max_price=max_price, has_more=next_offset is not None
+        page=page,
+        min_cut=min_cut,
+        price=str(max_price) if max_price is not None else "",
+        has_more=next_offset is not None,
     )
 
     if edit:
         await target.edit_text(
-            text, reply_markup=markup, disable_web_page_preview=True  # type: ignore[arg-type]
+            text, reply_markup=markup, disable_web_page_preview=True
         )
     else:
         await target.answer(
-            text, reply_markup=markup, disable_web_page_preview=True  # type: ignore[arg-type]
+            text, reply_markup=markup, disable_web_page_preview=True
         )
 
 

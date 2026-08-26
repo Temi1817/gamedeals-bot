@@ -41,6 +41,7 @@ def settings_keyboard(current_country: str, notify_enabled: bool) -> InlineKeybo
     builder.button(
         text=f"🌍 Регион: {current_country}", callback_data="settings:country"
     )
+    builder.button(text="🏬 Магазины", callback_data="settings:shops")
     builder.button(
         text=("🔔 Уведомления: вкл" if notify_enabled else "🔕 Уведомления: выкл"),
         callback_data=NotifyCB(enabled=not notify_enabled),
@@ -53,3 +54,31 @@ def close_button() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text="✖️ Закрыть", callback_data="close")]]
     )
+
+
+class ShopCB(CallbackData, prefix="shop"):
+    """Переключение магазина в настройках. `key` пустой — сбросить на все."""
+
+    key: str
+
+
+def shops_keyboard(selected: set[str]) -> InlineKeyboardMarkup:
+    """Выбор магазинов. Пустой выбор означает «все»."""
+    from bot.services.shops import KNOWN_SHOPS
+
+    builder = InlineKeyboardBuilder()
+    for shop in KNOWN_SHOPS:
+        mark = "✅ " if shop.key in selected else "▫️ "
+        builder.button(text=f"{mark}{shop.title}", callback_data=ShopCB(key=shop.key))
+    builder.adjust(2)
+
+    all_mark = "✅ " if not selected else ""
+    builder.row(
+        InlineKeyboardButton(
+            text=f"{all_mark}🌐 Все магазины", callback_data=ShopCB(key="").pack()
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="settings:back")
+    )
+    return builder.as_markup()

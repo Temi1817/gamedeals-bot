@@ -43,6 +43,7 @@ from bot.services.models import (
     Source,
 )
 from bot.services.rates import RatesClient
+from bot.services.shops import filter_offers, itad_shop_ids
 from bot.services.steam import SteamClient
 from bot.utils.logging import get_logger
 
@@ -134,8 +135,13 @@ class Aggregator:
         return None
 
     # -------------------------------------------------------------- карточка
-    async def game_details(self, game: Game, country: str = "KZ") -> GameDetails:
-        """Собирает карточку: цены по магазинам плюс исторический минимум."""
+    async def game_details(
+        self, game: Game, country: str = "KZ", shops: set[str] | None = None
+    ) -> GameDetails:
+        """Собирает карточку: цены по магазинам плюс исторический минимум.
+
+        `shops` — канонические ключи выбранных магазинов; пусто значит все.
+        """
         currency = _currency_for(country, self.default_currency)
         sources: list[Source] = []
 
@@ -156,6 +162,7 @@ class Aggregator:
             offers = _replace_steam(offers, steam_offer)
             sources.append(STEAM)
 
+        offers = filter_offers(offers, shops or set())
         offers = await self._convert_all(offers, currency)
         offers.sort(key=lambda o: (o.is_reseller, o.sort_key))
 
@@ -251,6 +258,7 @@ class Aggregator:
         offset: int = 0,
         min_cut: int = 0,
         max_price: Decimal | None = None,
+        shops: set[str] | None = None,
     ) -> tuple[list[Deal], int | None]:
         """Топ скидок. `max_price` — в валюте региона, пересчитываем сами."""
         currency = _currency_for(country, self.default_currency)
@@ -260,6 +268,7 @@ class Aggregator:
 
         # ITAD фильтрует в своей валюте ответа, а для KZ это доллары
         itad_max = await self._to_source_currency(max_price, currency)
+        shop_ids = await self._itad_shop_ids(shops or set(), country)
 
         try:
             deals, next_offset = await self.itad.deals(
@@ -269,6 +278,7 @@ class Aggregator:
                 sort="-cut",
                 min_cut=min_cut,
                 max_price=itad_max,
+                shops=shop_ids or None,
             )
         except Exception as exc:
             log.warning("itad_deals_failed", error=str(exc))
@@ -279,6 +289,17 @@ class Aggregator:
             for d in deals
         ]
         return converted, next_offset
+
+    async def _itad_shop_ids(self, shops: set[str], country: str) -> list[int]:
+        """Выбранные магазины → ID для параметра `shops` у ITAD."""
+        if not shops or self.itad is None:
+            return []
+        try:
+            directory = await self.itad.shops(country)
+        except Exception as exc:
+            log.warning("itad_shops_failed", error=str(exc))
+            return []
+        return itad_shop_ids(shops, dict(directory))
 
     async def _deals_from_cheapshark(
         self, max_price: Decimal | None, min_cut: int, currency: str

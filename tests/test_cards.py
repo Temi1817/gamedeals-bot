@@ -66,6 +66,13 @@ class TestOfferLine:
         assert "−70%" in line
         assert "<s>$59.99</s>" in line
 
+    def test_full_price_comes_before_sale_price(self) -> None:
+        """Читается как «было столько — стало столько»."""
+        line = cards.offer_line(offer("GOG", "17.99", cut=70, regular="59.99"))
+
+        assert "<s>$59.99</s> → <b>$17.99</b>" in line
+        assert line.index("59.99") < line.index("17.99")
+
     def test_no_old_price_without_discount(self) -> None:
         assert "<s>" not in cards.offer_line(offer("Steam", "59.99"))
 
@@ -223,6 +230,29 @@ class TestDealsList:
 
     def test_empty(self) -> None:
         assert "Ничего не нашлось" in cards.deals_list([], page=0, currency="KZT")
+
+    def test_old_price_shown_in_display_currency(self) -> None:
+        """Старая цена не должна остаться в долларах рядом с тенговой новой."""
+        deals = [
+            Deal(
+                game=CYBERPUNK,
+                offer=offer(
+                    "GOG", "17.99", converted="8231", cut=70, regular="59.99"
+                ),
+            )
+        ]
+
+        text = cards.deals_list(deals, page=0, currency="KZT")
+
+        # 8231 / 17.99 * 59.99 = 27 447
+        assert "$" not in text
+        assert f"27{NBSP}447{NBSP}₸" in text
+        assert f"8{NBSP}231{NBSP}₸" in text
+
+    def test_no_arrow_without_discount(self) -> None:
+        deals = [Deal(game=CYBERPUNK, offer=offer("Steam", "17999", "KZT"))]
+
+        assert "→" not in cards.deals_list(deals, page=0, currency="KZT")
 
 
 class TestFreeGames:

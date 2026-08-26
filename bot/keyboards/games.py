@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from aiogram.filters.callback_data import CallbackData
-from aiogram.types import InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot.services.models import Game
@@ -88,3 +88,43 @@ class DealsCB(CallbackData, prefix="deals"):
     page: int
     cut: int
     price: str
+
+
+# Пороги скидки для кнопок под списком скидок. 0 — «любая».
+CUT_PRESETS: tuple[int, ...] = (0, 25, 50, 75, 90)
+
+
+def deals_keyboard(
+    *, page: int, min_cut: int, price: str, has_more: bool
+) -> InlineKeyboardMarkup:
+    """Пресеты скидки плюс постраничная навигация."""
+    builder = InlineKeyboardBuilder()
+
+    for cut in CUT_PRESETS:
+        label = "любая" if cut == 0 else f"от {cut}%"
+        mark = "✅ " if min_cut == cut else ""
+        builder.button(
+            text=f"{mark}{label}",
+            callback_data=DealsCB(page=0, cut=cut, price=price),
+        )
+    builder.adjust(3, 2)
+
+    nav = []
+    if page > 0:
+        nav.append(
+            InlineKeyboardButton(
+                text="◀️ Назад",
+                callback_data=DealsCB(page=page - 1, cut=min_cut, price=price).pack(),
+            )
+        )
+    if has_more:
+        nav.append(
+            InlineKeyboardButton(
+                text="Дальше ▶️",
+                callback_data=DealsCB(page=page + 1, cut=min_cut, price=price).pack(),
+            )
+        )
+    if nav:
+        builder.row(*nav)
+
+    return builder.as_markup()

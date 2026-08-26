@@ -32,9 +32,14 @@ def offer_line(offer: Offer, position: int | None = None) -> str:
         marker = MEDALS[position] if position < len(MEDALS) else f"{position + 1}."
 
     shop = link(offer.shop.name, offer.url)
-    price = f"<b>{escape(format_price(offer.price, offer.currency))}</b>"
+    parts = [p for p in (marker, shop, "—") if p]
 
-    parts = [p for p in (marker, shop, "—", price) if p]
+    # Сначала полная цена, потом та, что со скидкой: «27 448 ₸ → 8 231 ₸»
+    if offer.regular_price is not None:
+        was = format_price(offer.regular_price, offer.currency)
+        parts.append(f"<s>{escape(was)}</s> →")
+
+    parts.append(f"<b>{escape(format_price(offer.price, offer.currency))}</b>")
 
     if offer.converted_price is not None and offer.converted_currency:
         approx = format_price(offer.converted_price, offer.converted_currency)
@@ -42,10 +47,6 @@ def offer_line(offer: Offer, position: int | None = None) -> str:
 
     if cut := format_discount(offer.cut):
         parts.append(cut)
-
-    if offer.regular_price is not None:
-        was = format_price(offer.regular_price, offer.currency)
-        parts.append(f"<s>{escape(was)}</s>")
 
     if offer.is_reseller:
         parts.append("🔑")
@@ -164,12 +165,31 @@ def deals_list(deals: list[Deal], page: int, currency: str) -> str:
     lines = [f"🔥 <b>Скидки</b> — страница {page + 1}", ""]
     for deal in deals:
         offer = deal.offer
-        price = format_price(offer.sort_key, currency)
         title = link(deal.game.title, offer.url)
-        cut = format_discount(offer.cut)
         shop = escape(offer.shop.name)
-        lines.append(f"{cut} {title} — <b>{escape(price)}</b> · {shop}")
+        cut = format_discount(offer.cut)
+
+        price = escape(format_price(offer.sort_key, currency))
+        if offer.regular_price is not None:
+            was = _in_display_currency(offer, offer.regular_price, currency)
+            price = f"<s>{escape(was)}</s> → <b>{price}</b>"
+        else:
+            price = f"<b>{price}</b>"
+
+        lines.append(f"{cut} {title} — {price} · {shop}")
     return "\n".join(lines)
+
+
+def _in_display_currency(offer: Offer, amount: Decimal, currency: str) -> str:
+    """Старую цену показываем в той же валюте, что и новую.
+
+    Курс для неё отдельно не запрашиваем: пересчитываем в той же
+    пропорции, что и текущую цену, — она уже приведена агрегатором.
+    """
+    if offer.converted_price is None or offer.price <= 0:
+        return format_price(amount, offer.currency)
+    ratio = offer.converted_price / offer.price
+    return format_price(amount * ratio, currency)
 
 
 def free_games(games: list[FreeGame]) -> str:
