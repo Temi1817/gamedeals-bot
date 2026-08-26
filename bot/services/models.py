@@ -67,10 +67,20 @@ class Offer:
     is_reseller: bool = False
     # цена не в валюте региона пользователя (тот же CheapShark — всегда USD)
     approximate: bool = False
+    # Пересчёт в валюту региона, заполняет агрегатор. Нужен, потому что у
+    # ITAD нет цен для Казахстана и он отдаёт доллары: без общей валюты
+    # список не отсортировать «от дешёвой к дорогой».
+    converted_price: Decimal | None = None
+    converted_currency: str | None = None
 
     @property
     def is_free(self) -> bool:
         return self.price <= 0
+
+    @property
+    def sort_key(self) -> Decimal:
+        """Цена в единой валюте — по ней сортируется карточка."""
+        return self.converted_price if self.converted_price is not None else self.price
 
     @property
     def savings(self) -> Decimal | None:
@@ -103,13 +113,13 @@ class GameDetails:
 
     @property
     def best_offer(self) -> Offer | None:
-        """Самое дешёвое предложение в валюте региона.
+        """Самое дешёвое предложение из настоящих магазинов.
 
-        Реселлеров и цены в чужой валюте в расчёт не берём: сравнивать
-        доллары с тенге без курса нельзя.
+        Реселлеров исключаем: их ключи — это не покупка в магазине, и
+        подсовывать их как лучшую цену нечестно.
         """
-        native = [o for o in self.offers if not o.approximate]
-        return min(native, key=lambda o: o.price) if native else None
+        shops = [o for o in self.offers if not o.is_reseller]
+        return min(shops, key=lambda o: o.sort_key) if shops else None
 
 
 @dataclass(frozen=True, slots=True)
