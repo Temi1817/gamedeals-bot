@@ -29,6 +29,10 @@ from bot.services.itad import ItadClient
 from bot.services.models import (
     CHEAPSHARK,
     ITAD,
+    KEY_CHEAPSHARK,
+    KEY_ITAD,
+    KEY_SEP,
+    KEY_STEAM,
     STEAM,
     Deal,
     FreeGame,
@@ -97,18 +101,18 @@ class Aggregator:
         носит с собой не игру, а её идентификатор — название и обложку
         добираем здесь.
         """
-        prefix, _, value = key.partition(":")
+        prefix, _, value = key.partition(KEY_SEP)
         if not value:
             return None
 
-        if prefix == "i":
+        if prefix == KEY_ITAD:
             game = Game(title="", itad_id=value)
-        elif prefix == "s":
+        elif prefix == KEY_STEAM:
             try:
                 game = Game(title="", steam_appid=int(value))
             except ValueError:
                 return None
-        elif prefix == "c":
+        elif prefix == KEY_CHEAPSHARK:
             game = Game(title="", cheapshark_id=value)
         else:
             return None

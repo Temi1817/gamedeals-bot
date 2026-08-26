@@ -243,8 +243,10 @@ class TestFreeGames:
         assert "Скоро раздадут" in text
 
     def test_hours_left_for_soon_ending(self) -> None:
+        # ровно 5 часов брать нельзя: остаток считается от now() внутри
+        # рендера, и любая задержка превращает 5 ч в 4 ч 59 мин
         now = datetime.now(UTC)
-        games = [FreeGame(title="Уходит", ends_at=now + timedelta(hours=5))]
+        games = [FreeGame(title="Уходит", ends_at=now + timedelta(hours=5, minutes=1))]
 
         assert "осталось 5 ч" in cards.free_games(games)
 

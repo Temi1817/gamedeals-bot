@@ -19,6 +19,14 @@ STEAM = "steam"
 EPIC = "epic"
 CHEAPSHARK = "cheapshark"
 
+# Из чего состоит Game.key. Двоеточие занято aiogram под разделитель полей
+# callback_data, поэтому берём `~`.
+KEY_SEP = "~"
+KEY_ITAD = "i"
+KEY_STEAM = "s"
+KEY_CHEAPSHARK = "c"
+KEY_TITLE = "t"
+
 
 @dataclass(frozen=True, slots=True)
 class Game:
@@ -33,14 +41,19 @@ class Game:
 
     @property
     def key(self) -> str:
-        """Стабильный ключ для callback-данных и кэша."""
+        """Стабильный ключ для callback-данных и кэша.
+
+        Разделитель именно `~`, а не двоеточие: двоеточием aiogram
+        разделяет поля внутри `callback_data`, и ключ с ним не упакуется.
+        В UUID, appid и ID CheapShark символа `~` не бывает.
+        """
         if self.itad_id:
-            return f"i:{self.itad_id}"
+            return f"{KEY_ITAD}{KEY_SEP}{self.itad_id}"
         if self.steam_appid:
-            return f"s:{self.steam_appid}"
+            return f"{KEY_STEAM}{KEY_SEP}{self.steam_appid}"
         if self.cheapshark_id:
-            return f"c:{self.cheapshark_id}"
-        return f"t:{self.title.lower()}"
+            return f"{KEY_CHEAPSHARK}{KEY_SEP}{self.cheapshark_id}"
+        return f"{KEY_TITLE}{KEY_SEP}{self.title.lower()}"
 
 
 @dataclass(frozen=True, slots=True)
