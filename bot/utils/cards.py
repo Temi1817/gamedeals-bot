@@ -343,3 +343,41 @@ def _free_line(game: FreeGame, now: datetime) -> str:
     if details:
         line += "\n   " + "  ·  ".join(details)
     return line
+
+
+TOP_TITLES = {
+    "waitlisted": "🔥 <b>Ждут скидку</b>",
+    "popular": "⭐ <b>Самые популярные</b>",
+    "collected": "📚 <b>Чаще всего покупают</b>",
+}
+
+TOP_HINTS = {
+    "waitlisted": "Игры, которых больше всего ждут по скидке",
+    "popular": "Во что играют больше всего",
+    "collected": "Что чаще всего лежит в библиотеках",
+}
+
+
+def top_list(deals: list[Deal], kind: str, currency: str) -> str:
+    """Рейтинг игр с текущей лучшей ценой."""
+    header = TOP_TITLES.get(kind, TOP_TITLES["waitlisted"])
+    hint = TOP_HINTS.get(kind, "")
+
+    if not deals:
+        return f"{header}\n\n😕 Рейтинг сейчас недоступен, попробуй позже."
+
+    lines = [header, f"<i>{hint}</i>", RULE, ""]
+    for index, deal in enumerate(deals, start=1):
+        offer = deal.offer
+        place = MEDALS[index - 1] if index <= len(MEDALS) else f"{index}."
+        title = link(deal.game.title, offer.url)
+
+        price = _amount(offer)
+        if cut := format_discount(offer.cut):
+            price += f" · <b>{cut}</b>"
+
+        lines.append(f"{place} <b>{title}</b>")
+        lines.append(f"   {price} · {escape(offer.shop.name)}")
+        lines.append("")
+
+    return "\n".join(lines).rstrip()

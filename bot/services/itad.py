@@ -31,6 +31,14 @@ BASE_URL = "https://api.isthereanydeal.com"
 # ITAD ограничивает размер батча; больше сотни за раз всё равно не нужно
 BATCH_SIZE = 50
 
+# Рейтинги. `waitlisted` — сколько людей ждут скидку, для бота о ценах это
+# полезнее всего; `popular` и `collected` — общая популярность.
+TOP_ENDPOINTS = {
+    "waitlisted": "/stats/most-waitlisted/v1",
+    "popular": "/stats/most-popular/v1",
+    "collected": "/stats/most-collected/v1",
+}
+
 
 def _price(raw: Any) -> tuple[Decimal, str] | None:
     """`{"amount": 17.99, "amountInt": 1799, "currency": "USD"}` → сумма и код."""
@@ -359,6 +367,24 @@ class ItadClient:
 
         next_offset = raw.get("nextOffset") if raw.get("hasMore") else None
         return deals, int(next_offset) if next_offset is not None else None
+
+    # ---------------------------------------------------------------- топы
+    async def top_games(self, kind: str = "waitlisted", limit: int = 10) -> list[Game]:
+        """Рейтинги ITAD: что ждут ради скидки или во что больше играют.
+
+        Окна «за сегодня» у эндпоинтов нет — это накопительные рейтинги.
+        """
+        path = TOP_ENDPOINTS.get(kind, TOP_ENDPOINTS["waitlisted"])
+        key = f"itad:top:{kind}:{limit}"
+
+        async def fetch() -> list[dict[str, Any]]:
+            data = await self.api.get_json(
+                f"{BASE_URL}{path}", params=self._params(limit=limit)
+            )
+            return data if isinstance(data, list) else []
+
+        raw = await self.cache.get_or_set(key, self.search_ttl, fetch)
+        return [g for g in (_game(item) for item in raw) if g]
 
     # -------------------------------------------------------------- магазины
     async def shops(self, country: str = "KZ") -> dict[str, Shop]:

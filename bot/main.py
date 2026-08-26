@@ -26,6 +26,7 @@ COMMANDS = [
     BotCommand(command="watch", description="Следить за ценой: /watch Hades 3000"),
     BotCommand(command="list", description="Что я отслеживаю"),
     BotCommand(command="deals", description="Топ скидок дня"),
+    BotCommand(command="top", description="Популярные игры сейчас"),
     BotCommand(command="free", description="Бесплатные раздачи"),
     BotCommand(command="settings", description="Регион и уведомления"),
     BotCommand(command="help", description="Справка"),

@@ -290,6 +290,79 @@ class Aggregator:
             return None
         return prices.get(game.steam_appid)
 
+    # ------------------------------------------------------------------ топ
+    async def top_games(
+        self, kind: str = "waitlisted", country: str = "KZ", limit: int = 10
+    ) -> list[Deal]:
+        """Рейтинг игр с текущей лучшей ценой по каждой.
+
+        Точные цены магазинов подтягиваем только пакетно — Steam одним
+        запросом на все appid, Epic одной витриной. GOG спрашивает цену по
+        одной игре, поэтому в топе не участвует: десяток лишних запросов
+        того не стоит, а пометка ≈ честно об этом скажет.
+        """
+        if self.itad is None:
+            return []
+
+        currency = _currency_for(country, self.default_currency)
+        try:
+            games = await self.itad.top_games(kind, limit=limit)
+        except Exception as exc:
+            log.warning("itad_top_failed", error=str(exc), kind=kind)
+            return []
+        if not games:
+            return []
+
+        ids = [g.itad_id for g in games if g.itad_id]
+        try:
+            prices = await self.itad.prices(ids, country=country)
+        except Exception as exc:
+            log.warning("itad_top_prices_failed", error=str(exc))
+            prices = {}
+
+        steam_prices = await self._steam_batch(games, country)
+        epic_prices = await self._epic_map(country)
+
+        result: list[Deal] = []
+        for game in games:
+            offers = list(prices.get(game.itad_id or "", []))
+
+            steam_offer = steam_prices.get(game.steam_appid or -1)
+            if steam_offer is not None:
+                offers = _replace_shop(offers, steam_offer, STEAM_SHOP_NAMES)
+
+            epic_offer = epic_prices.get(game.title.casefold().strip())
+            if epic_offer is not None:
+                offers = _replace_shop(offers, epic_offer, EPIC_SHOP_NAMES)
+
+            offers = await self._convert_all(offers, currency)
+            shops = [o for o in offers if not o.is_reseller]
+            if shops:
+                result.append(
+                    Deal(game=game, offer=min(shops, key=lambda o: o.sort_key))
+                )
+        return result
+
+    async def _steam_batch(
+        self, games: list[Game], country: str
+    ) -> dict[int, Offer]:
+        """Цены Steam на весь список одним запросом."""
+        appids = [g.steam_appid for g in games if g.steam_appid]
+        if not appids:
+            return {}
+        try:
+            return await self.steam.prices(appids, country=country)
+        except Exception as exc:
+            log.warning("steam_batch_failed", error=str(exc))
+            return {}
+
+    async def _epic_map(self, country: str) -> dict[str, Offer]:
+        try:
+            return await self.epic.regional_prices(country=country)
+        except Exception as exc:
+            log.warning("epic_map_failed", error=str(exc))
+            return {}
+
     # ---------------------------------------------------------------- скидки
     async def deals(
         self,

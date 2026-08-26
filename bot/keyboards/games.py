@@ -128,3 +128,55 @@ def deals_keyboard(
         builder.row(*nav)
 
     return builder.as_markup()
+
+
+class TopCB(CallbackData, prefix="top"):
+    """Переключение вкладок рейтинга."""
+
+    kind: str
+
+
+class WatchTargetCB(CallbackData, prefix="wt"):
+    """Выбор цели по цене кнопками, без набора команды.
+
+    `percent` — на сколько ниже текущей цены ждать. 0 означает «любое
+    снижение», то есть цель не задана.
+    """
+
+    key: str
+    percent: int
+
+
+TOP_KINDS: tuple[tuple[str, str], ...] = (
+    ("waitlisted", "🔥 Ждут скидку"),
+    ("popular", "⭐ Популярные"),
+    ("collected", "📚 Покупают"),
+)
+
+# Насколько ниже текущей цены можно ждать, не набирая сумму руками
+TARGET_PERCENTS: tuple[int, ...] = (20, 30, 50)
+
+
+def top_keyboard(current: str) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for kind, label in TOP_KINDS:
+        mark = "✅ " if kind == current else ""
+        builder.button(text=f"{mark}{label}", callback_data=TopCB(kind=kind))
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+def watch_target_keyboard(game: Game) -> InlineKeyboardMarkup:
+    """Цель по цене одним нажатием вместо «/watch Hades 3000»."""
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="🔔 Любое снижение", callback_data=WatchTargetCB(key=game.key, percent=0)
+    )
+    for percent in TARGET_PERCENTS:
+        builder.button(
+            text=f"🎯 −{percent}% от текущей",
+            callback_data=WatchTargetCB(key=game.key, percent=percent),
+        )
+    builder.button(text="◀️ Отмена", callback_data=GameCB(key=game.key))
+    builder.adjust(1, 3, 1)
+    return builder.as_markup()

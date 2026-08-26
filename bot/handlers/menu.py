@@ -14,6 +14,7 @@ from bot.db.models import User
 from bot.handlers.deals import cmd_deals
 from bot.handlers.free import cmd_free
 from bot.handlers.start import HELP, cmd_settings
+from bot.handlers.top import cmd_top
 from bot.handlers.watchlist import cmd_list
 from bot.keyboards.menu import (
     BTN_DEALS,
@@ -21,6 +22,7 @@ from bot.keyboards.menu import (
     BTN_HELP,
     BTN_SEARCH,
     BTN_SETTINGS,
+    BTN_TOP,
     BTN_WATCHLIST,
     main_menu,
 )
@@ -47,6 +49,13 @@ async def on_deals_button(
     message: Message, user: User, aggregator: Aggregator
 ) -> None:
     await cmd_deals(message, user, aggregator)
+
+
+@router.message(F.text == BTN_TOP)
+async def on_top_button(
+    message: Message, user: User, aggregator: Aggregator
+) -> None:
+    await cmd_top(message, user, aggregator)
 
 
 @router.message(F.text == BTN_FREE)

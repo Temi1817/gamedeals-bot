@@ -15,13 +15,16 @@ from bot.keyboards.games import (
     GameCB,
     HistoryCB,
     WatchCB,
+    WatchTargetCB,
     game_card_keyboard,
     search_keyboard,
+    watch_target_keyboard,
 )
 from bot.services.aggregator import Aggregator, _currency_for
 from bot.services.models import GameDetails
 from bot.services.shops import parse_selection
 from bot.utils import cards
+from bot.utils.formatting import format_price
 from bot.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -223,55 +226,106 @@ async def on_history(
 # отслеживание с карточки
 # --------------------------------------------------------------------------- #
 @router.callback_query(WatchCB.filter())
-async def on_watch_toggle(
+async def on_watch_pressed(
     callback: CallbackQuery,
     callback_data: WatchCB,
     user: User,
     session: AsyncSession,
     aggregator: Aggregator,
 ) -> None:
+    """Уже следим — снимаем; иначе предлагаем выбрать цель кнопками."""
     game = await aggregator.resolve_game(callback_data.key)
     if game is None:
         await callback.answer(NOT_FOUND_CARD, show_alert=True)
         return
+
+    stored = await GameRepo(session).find(
+        itad_id=game.itad_id,
+        steam_appid=game.steam_appid,
+        cheapshark_id=game.cheapshark_id,
+    )
+    watches = WatchRepo(session)
+    already = None
+    if stored is not None:
+        existing = await watches.for_user(user.id)
+        already = next((w for w in existing if w.game_id == stored.id), None)
+
+    if already is not None:
+        await watches.remove(already.id, user.id)
+        await callback.answer("Больше не отслеживаю")
+        if isinstance(callback.message, Message):
+            await callback.message.edit_reply_markup(
+                reply_markup=game_card_keyboard(game, watched=False)
+            )
+        return
+
+    await callback.answer()
+    if isinstance(callback.message, Message):
+        await callback.message.edit_reply_markup(
+            reply_markup=watch_target_keyboard(game)
+        )
+
+
+@router.callback_query(WatchTargetCB.filter())
+async def on_watch_target(
+    callback: CallbackQuery,
+    callback_data: WatchTargetCB,
+    user: User,
+    session: AsyncSession,
+    aggregator: Aggregator,
+) -> None:
+    """Ставит отслеживание с целью, выбранной кнопкой.
+
+    Процент считается от текущей лучшей цены, поэтому цель получается
+    осмысленной без набора суммы руками.
+    """
+    game = await aggregator.resolve_game(callback_data.key)
+    if game is None:
+        await callback.answer(NOT_FOUND_CARD, show_alert=True)
+        return
+
+    currency = _currency_for(user.country, "KZT")
+    target: Decimal | None = None
+
+    if callback_data.percent:
+        details = await aggregator.game_details(
+            game, country=user.country, shops=parse_selection(user.preferred_shops)
+        )
+        best = details.best_offer
+        if best is not None:
+            share = Decimal(100 - callback_data.percent) / Decimal(100)
+            target = (best.sort_key * share).quantize(Decimal("1"))
 
     games = GameRepo(session)
     stored = await games.find(
         itad_id=game.itad_id,
         steam_appid=game.steam_appid,
         cheapshark_id=game.cheapshark_id,
+    ) or await games.upsert(
+        title=game.title,
+        itad_id=game.itad_id,
+        steam_appid=game.steam_appid,
+        cheapshark_id=game.cheapshark_id,
+        slug=game.slug,
+        image_url=game.image_url,
     )
-    if stored is None:
-        stored = await games.upsert(
-            title=game.title,
-            itad_id=game.itad_id,
-            steam_appid=game.steam_appid,
-            cheapshark_id=game.cheapshark_id,
-            slug=game.slug,
-            image_url=game.image_url,
-        )
 
-    watches = WatchRepo(session)
-    existing = await watches.for_user(user.id)
-    already = next((w for w in existing if w.game_id == stored.id), None)
+    await WatchRepo(session).add(
+        user_id=user.id,
+        game_id=stored.id,
+        target_price=target,
+        currency=currency,
+        notify_any_drop=target is None,
+    )
 
-    if already is not None:
-        await watches.remove(already.id, user.id)
-        await callback.answer("Больше не отслеживаю")
-        watched = False
+    if target is not None:
+        note = f"Жду {format_price(target, currency)}"
     else:
-        await watches.add(
-            user_id=user.id,
-            game_id=stored.id,
-            target_price=None,
-            currency=_currency_for(user.country, "KZT"),
-            notify_any_drop=True,
-        )
-        await callback.answer("Слежу за ценой — напишу, когда подешевеет")
-        watched = True
-        log.info("watch_added", tg_id=user.tg_id, game=game.title)
+        note = "Напишу при любом снижении"
+    await callback.answer(f"🔔 {note}")
 
     if isinstance(callback.message, Message):
         await callback.message.edit_reply_markup(
-            reply_markup=game_card_keyboard(game, watched=watched)
+            reply_markup=game_card_keyboard(game, watched=True)
         )
+    log.info("watch_added", tg_id=user.tg_id, game=game.title, target=str(target))
