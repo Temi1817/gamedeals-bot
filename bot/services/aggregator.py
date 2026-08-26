@@ -25,6 +25,7 @@ from decimal import Decimal
 
 from bot.services.cheapshark import CheapSharkClient
 from bot.services.epic import EpicClient
+from bot.services.gog import GogClient
 from bot.services.itad import ItadClient
 from bot.services.models import (
     CHEAPSHARK,
@@ -49,8 +50,10 @@ from bot.utils.logging import get_logger
 
 log = get_logger(__name__)
 
-# Как называется Steam в справочнике ITAD — по этому имени ищем, что заменить
+# Как магазин называется в справочнике ITAD — по имени ищем, что заменить
 STEAM_SHOP_NAMES = frozenset({"steam"})
+GOG_SHOP_NAMES = frozenset({"gog", "gog.com"})
+GOG = "gog"
 
 
 class Aggregator:
@@ -63,6 +66,7 @@ class Aggregator:
         epic: EpicClient,
         cheapshark: CheapSharkClient,
         rates: RatesClient,
+        gog: GogClient | None = None,
         itad: ItadClient | None = None,
         default_currency: str = "KZT",
     ) -> None:
@@ -70,6 +74,7 @@ class Aggregator:
         self.steam = steam
         self.epic = epic
         self.cheapshark = cheapshark
+        self.gog = gog
         self.rates = rates
         self.default_currency = default_currency
 
@@ -156,11 +161,18 @@ class Aggregator:
             if offers:
                 sources.append(CHEAPSHARK)
 
-        # родная цена Steam точнее долларовой из ITAD — подменяем
+        # У Steam и GOG есть свои цены для региона, а ITAD их не знает и
+        # отдаёт международные. Для GOG разница доходит до двух раз, поэтому
+        # обе цены берём у самих магазинов.
         steam_offer = await self._steam_offer(game, country)
         if steam_offer is not None:
-            offers = _replace_steam(offers, steam_offer)
+            offers = _replace_shop(offers, steam_offer, STEAM_SHOP_NAMES)
             sources.append(STEAM)
+
+        gog_offer = await self._gog_offer(game, country)
+        if gog_offer is not None:
+            offers = _replace_shop(offers, gog_offer, GOG_SHOP_NAMES)
+            sources.append(GOG)
 
         offers = filter_offers(offers, shops or set())
         offers = await self._convert_all(offers, currency)
@@ -238,6 +250,17 @@ class Aggregator:
             return [], low
 
         return offers, low or cs_low
+
+    async def _gog_offer(self, game: Game, country: str) -> Offer | None:
+        """Реальная цена GOG для региона вместо международной из ITAD."""
+        if self.gog is None or not game.title:
+            return None
+        try:
+            found = await self.gog.offer_for(game.title, country=country)
+        except Exception as exc:
+            log.warning("gog_price_failed", error=str(exc), game=game.title)
+            return None
+        return found[1] if found else None
 
     async def _steam_offer(self, game: Game, country: str) -> Offer | None:
         if game.steam_appid is None:
@@ -360,7 +383,11 @@ class Aggregator:
         if converted is None:
             return low
         return HistoricalLow(
-            price=converted, currency=currency, at=low.at, shop=low.shop
+            price=converted,
+            currency=currency,
+            at=low.at,
+            shop=low.shop,
+            converted=True,
         )
 
     async def _to_source_currency(
@@ -411,15 +438,16 @@ def _merge(base: Game, extra: Game) -> Game:
     )
 
 
-def _replace_steam(offers: list[Offer], steam_offer: Offer) -> list[Offer]:
-    """Меняет долларовую цену Steam от ITAD на родную из Steam Store."""
+def _replace_shop(
+    offers: list[Offer], fresh: Offer, names: frozenset[str]
+) -> list[Offer]:
+    """Меняет международную цену магазина от ITAD на родную из самой витрины."""
     kept = [
         o
         for o in offers
-        if not (o.shop.source == ITAD and o.shop.name.strip().lower() in
-                STEAM_SHOP_NAMES)
+        if not (o.shop.source == ITAD and o.shop.name.strip().lower() in names)
     ]
-    return [*kept, steam_offer]
+    return [*kept, fresh]
 
 
 def _currency_for(country: str, default: str) -> str:

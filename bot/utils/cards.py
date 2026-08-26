@@ -120,11 +120,33 @@ def game_card(details: GameDetails, country: str = "KZ") -> str:
             )
         )
 
-    if any(o.converted_price is not None for o in details.offers):
-        lines.append("")
-        lines.append("<i>В скобках — сумма, которую спишет магазин.</i>")
-
+    lines.extend(_price_notes(details.offers))
     return "\n".join(lines)
+
+
+# Магазины, у которых мы спрашиваем цену напрямую и потому знаем её точно
+# для региона пользователя. Остальные приходят от ITAD по международному
+# прайсу: у ITAD нет региональных цен для Казахстана.
+VERIFIED_SOURCES = frozenset({"steam", "gog"})
+
+
+def _price_notes(offers: list[Offer]) -> list[str]:
+    """Сноски под карточкой: что за цифры в скобках и чему верить."""
+    notes: list[str] = []
+
+    if any(o.converted_price is not None for o in offers):
+        notes.append("<i>В скобках — сумма, которую спишет магазин.</i>")
+
+    international = [
+        o for o in offers if not o.is_reseller and o.shop.source not in VERIFIED_SOURCES
+    ]
+    if international:
+        notes.append(
+            "<i>⚠️ Цены Steam и GOG — для твоего региона. Остальные магазины "
+            "показаны по международному прайсу: на месте может быть дешевле.</i>"
+        )
+
+    return ["", *notes] if notes else []
 
 
 def search_results(query: str, count: int) -> str:

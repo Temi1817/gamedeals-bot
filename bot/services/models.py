@@ -109,12 +109,18 @@ class Offer:
 
 @dataclass(frozen=True, slots=True)
 class HistoricalLow:
-    """Исторический минимум цены."""
+    """Исторический минимум цены.
+
+    `converted` означает, что минимум пересчитан из другой валюты: у ITAD
+    нет региональных цен для Казахстана, поэтому история там международная
+    и напрямую с региональной ценой магазина не сравнивается.
+    """
 
     price: Decimal
     currency: str
     at: datetime | None = None
     shop: str | None = None
+    converted: bool = False
 
 
 @dataclass(frozen=True, slots=True)

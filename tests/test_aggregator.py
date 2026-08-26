@@ -11,7 +11,13 @@ from typing import Any
 
 import pytest
 
-from bot.services.aggregator import Aggregator, _currency_for, _merge, _replace_steam
+from bot.services.aggregator import (
+    STEAM_SHOP_NAMES,
+    Aggregator,
+    _currency_for,
+    _merge,
+    _replace_shop,
+)
 from bot.services.models import (
     CHEAPSHARK,
     ITAD,
@@ -407,19 +413,19 @@ def test_merge_fills_missing_ids() -> None:
     assert merged.image_url == "https://img"
 
 
-def test_replace_steam_keeps_other_shops() -> None:
+def test_replace_shop_keeps_other_shops() -> None:
     offers = [itad_offer("GOG", "17.99"), itad_offer("Steam", "59.99")]
 
-    result = _replace_steam(offers, steam_offer("17999"))
+    result = _replace_shop(offers, steam_offer("17999"), STEAM_SHOP_NAMES)
 
     assert [o.shop.name for o in result] == ["GOG", "Steam"]
     assert result[-1].currency == "KZT"
 
 
-def test_replace_steam_is_case_insensitive() -> None:
+def test_replace_shop_is_case_insensitive() -> None:
     offers = [itad_offer("STEAM", "59.99")]
 
-    result = _replace_steam(offers, steam_offer("17999"))
+    result = _replace_shop(offers, steam_offer("17999"), STEAM_SHOP_NAMES)
 
     assert len(result) == 1
     assert result[0].currency == "KZT"

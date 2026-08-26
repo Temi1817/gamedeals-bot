@@ -11,6 +11,7 @@ from bot.services.aggregator import Aggregator
 from bot.services.cache import TTLCache
 from bot.services.cheapshark import CheapSharkClient
 from bot.services.epic import EpicClient
+from bot.services.gog import GogClient
 from bot.services.http import ApiClient, create_client
 from bot.services.itad import ItadClient
 from bot.services.rates import RatesClient
@@ -67,6 +68,12 @@ def build_services(settings: Settings) -> Services:
             price_ttl=settings.cache_ttl_prices,
         ),
         epic=EpicClient(api("epic"), cache, ttl=settings.cache_ttl_search),
+        gog=GogClient(
+            api("gog"),
+            cache,
+            search_ttl=settings.cache_ttl_search,
+            price_ttl=settings.cache_ttl_prices,
+        ),
         cheapshark=CheapSharkClient(
             api("cheapshark"),
             cache,
