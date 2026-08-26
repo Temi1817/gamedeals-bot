@@ -335,7 +335,16 @@ class Aggregator:
         converted = await self.rates.convert(offer.price, offer.currency, currency)
         if converted is None:
             return offer
-        return replace_offer(offer, converted, currency)
+
+        # старую цену переводим тем же курсом, а не пропорцией от новой:
+        # при скидке −100% новая цена равна нулю и пропорция не считается
+        converted_regular: Decimal | None = None
+        if offer.regular_price is not None:
+            converted_regular = await self.rates.convert(
+                offer.regular_price, offer.currency, currency
+            )
+
+        return replace_offer(offer, converted, currency, converted_regular)
 
     async def _convert_all(self, offers: list[Offer], currency: str) -> list[Offer]:
         return [await self._convert(o, currency) for o in offers]
@@ -368,7 +377,12 @@ class Aggregator:
 # --------------------------------------------------------------------------- #
 # помощники
 # --------------------------------------------------------------------------- #
-def replace_offer(offer: Offer, converted: Decimal, currency: str) -> Offer:
+def replace_offer(
+    offer: Offer,
+    converted: Decimal,
+    currency: str,
+    converted_regular: Decimal | None = None,
+) -> Offer:
     """`Offer` заморожен — пересобираем с проставленной конвертацией."""
     return Offer(
         shop=offer.shop,
@@ -381,6 +395,7 @@ def replace_offer(offer: Offer, converted: Decimal, currency: str) -> Offer:
         approximate=True,  # цена не в валюте региона
         converted_price=converted,
         converted_currency=currency,
+        converted_regular_price=converted_regular,
     )
 
 

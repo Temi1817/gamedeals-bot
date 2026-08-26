@@ -18,6 +18,7 @@ from bot.keyboards.common import (
     settings_keyboard,
     shops_keyboard,
 )
+from bot.keyboards.menu import main_menu
 from bot.services.shops import dump_selection, parse_selection, title_for
 from bot.utils.formatting import escape
 from bot.utils.logging import get_logger
@@ -25,35 +26,50 @@ from bot.utils.logging import get_logger
 log = get_logger(__name__)
 router = Router(name="start")
 
-WELCOME = """👋 Привет, {name}!
+WELCOME = """👋 <b>Привет, {name}!</b>
 
 Я слежу за ценами на PC-игры сразу во всех магазинах — Steam, GOG, Epic,
 Humble, Fanatical, GreenManGaming и других.
 
-<b>Что умею:</b>
-• Напиши название игры (или <code>/find Cyberpunk</code>) — покажу цены
-  по магазинам от дешёвой к дорогой, с историческим минимумом.
-• Напиши просто число, например <code>5000</code> — соберу скидки дешевле
-  этой суммы.
-• <code>/watch Hades 3000</code> — сообщу, когда цена упадёт ниже цели.
-• /list — что ты отслеживаешь
-• /deals — топ скидок дня
-• /free — бесплатные раздачи прямо сейчас
+━━━━━━━━━━━━━━━
+🔍 <b>Найти игру</b>
+Напиши название — покажу цены по магазинам от дешёвой к дорогой,
+исторический минимум и подскажу, стоит ли брать сейчас.
 
-Регион сейчас: <b>{country}</b>. Сменить — /settings"""
+💰 <b>Фильтр по цене</b>
+Напиши сумму, например <code>5000</code> — соберу скидки дешевле неё.
 
-HELP = """<b>Команды</b>
+🔔 <b>Отслеживание</b>
+<code>/watch Hades 3000</code> — напишу, когда цена упадёт ниже цели.
+━━━━━━━━━━━━━━━
 
-/find &lt;название&gt; — поиск игры и цены по магазинам
-/watch &lt;название&gt; &lt;цена&gt; — следить за ценой
-/list — список отслеживаемого
-/deals — топ-10 скидок дня
+🌍 Регион: <b>{country}</b>
+🏬 Магазины: <b>{shops}</b>
+
+👇 Всё нужное — на кнопках снизу."""
+
+HELP = """❓ <b>Что я умею</b>
+━━━━━━━━━━━━━━━
+
+🔍 <b>Поиск</b>
+Напиши название игры или <code>/find Cyberpunk</code>
+
+💰 <b>Скидки дешевле суммы</b>
+Просто число: <code>5000</code>
+
+🔔 <b>Следить за ценой</b>
+<code>/watch Hades 3000</code> — до цели
+<code>/watch Hades</code> — при любом снижении
+Или кнопка 🔔 прямо на карточке игры
+
+━━━━━━━━━━━━━━━
+<b>Команды</b>
+
+/find — поиск игры
+/list — что отслеживаю
+/deals — топ скидок
 /free — бесплатные раздачи
-/settings — регион и уведомления
-
-<b>Без команд</b>
-• текст → поиск игры
-• число → скидки дешевле этой суммы"""
+/settings — регион и магазины"""
 
 
 def _country_label(code: str) -> str:
@@ -62,9 +78,10 @@ def _country_label(code: str) -> str:
 
 def _settings_text(user: User) -> str:
     return (
-        "⚙️ <b>Настройки</b>\n\n"
-        f"Регион: {_country_label(user.country)}\n"
-        f"Магазины: {_shops_summary(user)}"
+        "⚙️ <b>Настройки</b>\n"
+        "━━━━━━━━━━━━━━━\n\n"
+        f"🌍 Регион: <b>{_country_label(user.country)}</b>\n"
+        f"🏬 Магазины: <b>{_shops_summary(user)}</b>"
     )
 
 
@@ -72,15 +89,22 @@ def _settings_text(user: User) -> str:
 async def cmd_start(message: Message, user: User) -> None:
     name = escape(message.from_user.first_name if message.from_user else "друг")
     await message.answer(
-        WELCOME.format(name=name, country=_country_label(user.country)),
+        WELCOME.format(
+            name=name,
+            country=_country_label(user.country),
+            shops=_shops_summary(user),
+        ),
         disable_web_page_preview=True,
+        reply_markup=main_menu(),
     )
     log.info("user_started", tg_id=user.tg_id, country=user.country)
 
 
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
-    await message.answer(HELP, disable_web_page_preview=True)
+    await message.answer(
+        HELP, disable_web_page_preview=True, reply_markup=main_menu()
+    )
 
 
 @router.message(Command("settings"))

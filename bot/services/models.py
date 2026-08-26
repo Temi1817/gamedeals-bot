@@ -85,6 +85,10 @@ class Offer:
     # список не отсортировать «от дешёвой к дорогой».
     converted_price: Decimal | None = None
     converted_currency: str | None = None
+    # Старая цена в той же валюте, что и converted_price. Считается курсом,
+    # а не пропорцией от текущей: при скидке −100% текущая цена равна нулю,
+    # и пропорция превратила бы «было $14.99» в «было 0 ₸».
+    converted_regular_price: Decimal | None = None
 
     @property
     def is_free(self) -> bool:
