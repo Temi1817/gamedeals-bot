@@ -119,19 +119,22 @@ async def probe_itad(client: httpx.AsyncClient) -> None:
         print("\nНе удалось получить ID игры — остальные ITAD-пробы пропущены.")
         return
 
-    step(f"POST /games/prices/v3?country={COUNTRY}&deals=true — цены по магазинам")
+    # deals=true оставляет только магазины с активной скидкой — для карточки
+    # нужны все, поэтому deals=false
+    step(f"POST /games/prices/v3?country={COUNTRY}&deals=false — цены по магазинам")
     r = await client.post(
         f"{base}/games/prices/v3",
-        params={**auth, "country": COUNTRY, "deals": "true"},
+        params={**auth, "country": COUNTRY, "deals": "false", "capacity": 0},
         json=[game_id],
     )
     dump(r, limit=6000)
 
+    # тело — голый массив ID; {"ids": [...]} даёт 400
     step(f"POST /games/overview/v2?country={COUNTRY} — обзор + исторический минимум")
     r = await client.post(
         f"{base}/games/overview/v2",
         params={**auth, "country": COUNTRY},
-        json={"ids": [game_id]},
+        json=[game_id],
     )
     dump(r, limit=6000)
 
