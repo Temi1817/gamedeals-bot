@@ -76,3 +76,15 @@ def watchlist_keyboard(items: list[tuple[int, str]]) -> InlineKeyboardMarkup:
         )
     builder.adjust(1)
     return builder.as_markup()
+
+
+class DealsCB(CallbackData, prefix="deals"):
+    """Пагинация и фильтры в списке скидок.
+
+    `price` — строка, а не Decimal: пустое значение означает «без потолка»,
+    а CallbackData не умеет опциональные числовые поля.
+    """
+
+    page: int
+    cut: int
+    price: str

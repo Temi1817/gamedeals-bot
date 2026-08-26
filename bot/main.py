@@ -14,6 +14,7 @@ from aiogram.types import BotCommand
 from bot.config import ROOT_DIR, Settings, get_settings
 from bot.db.session import create_sessionmaker, dispose_engine, get_engine
 from bot.handlers import build_router
+from bot.jobs import setup_scheduler
 from bot.middlewares import DbSessionMiddleware, UserMiddleware
 from bot.services.factory import Services, build_services
 from bot.utils.logging import get_logger, setup_logging
@@ -143,12 +144,18 @@ async def main() -> None:
     services = build_services(settings)
     dp = create_dispatcher(settings, services)
 
+    scheduler = setup_scheduler(
+        bot, dp["sessionmaker"], services.aggregator, settings
+    )
+    scheduler.start()
+
     try:
         if settings.use_webhook:
             await run_webhook(bot, dp, settings)
         else:
             await run_polling(bot, dp, settings)
     finally:
+        scheduler.shutdown(wait=False)
         await services.close()
         await bot.session.close()
 

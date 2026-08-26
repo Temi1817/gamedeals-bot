@@ -1,20 +1,24 @@
 """Регистрация роутеров.
 
-Порядок важен: search ловит любой текст без команды, поэтому идёт
-последним — иначе он перехватит сообщения у остальных хендлеров.
+Порядок важен. deals ловит сообщения из одних цифр, search — любой
+оставшийся текст, поэтому search идёт последним: иначе он перехватил бы
+и числа, и всё остальное.
 """
 
 from __future__ import annotations
 
 from aiogram import Router
 
-from bot.handlers import errors, search, start
+from bot.handlers import deals, errors, free, search, start, watchlist
 
 
 def build_router() -> Router:
     router = Router(name="root")
     router.include_router(errors.router)
     router.include_router(start.router)
+    router.include_router(watchlist.router)
+    router.include_router(free.router)
+    router.include_router(deals.router)
     router.include_router(search.router)
     return router
 

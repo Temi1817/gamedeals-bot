@@ -289,6 +289,39 @@ class SnapshotRepo:
             return None
         return row[0], row[1]
 
+    async def latest_prices(
+        self, game_ids: list[int], currency: str
+    ) -> dict[int, PriceSnapshot]:
+        """Последний известный минимум по каждой игре.
+
+        Нужен для `/list`: дёргать API за каждой строчкой списка дорого,
+        а замеры и так обновляет часовая джоба.
+        """
+        if not game_ids:
+            return {}
+
+        rows = await self.session.scalars(
+            select(PriceSnapshot)
+            .where(
+                PriceSnapshot.game_id.in_(game_ids),
+                PriceSnapshot.currency == currency,
+            )
+            .order_by(desc(PriceSnapshot.checked_at))
+        )
+
+        best: dict[int, PriceSnapshot] = {}
+        seen_at: dict[int, datetime] = {}
+        for row in rows:
+            previous = seen_at.get(row.game_id)
+            # берём только самый свежий заход, внутри него — минимальную цену
+            if previous is None:
+                seen_at[row.game_id] = row.checked_at
+                best[row.game_id] = row
+            elif (previous - row.checked_at) < timedelta(minutes=5):
+                if row.price < best[row.game_id].price:
+                    best[row.game_id] = row
+        return best
+
     async def prune(self, older_than_days: int = 365) -> int:
         """Чистка старых замеров, чтобы SQLite не пух бесконечно."""
         cutoff = datetime.now(UTC) - timedelta(days=older_than_days)
