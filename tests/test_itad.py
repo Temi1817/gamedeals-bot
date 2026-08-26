@@ -12,7 +12,13 @@ import respx
 
 from bot.services.cache import TTLCache
 from bot.services.http import ApiClient
-from bot.services.itad import BASE_URL, ItadClient, _deal_filter
+from bot.services.itad import (
+    BASE_URL,
+    MIN_REVIEWS,
+    MIN_SCORE,
+    ItadClient,
+    _deal_filter,
+)
 
 SEARCH_URL = f"{BASE_URL}/games/search/v1"
 LOOKUP_URL = f"{BASE_URL}/games/lookup/v1"
@@ -300,6 +306,30 @@ async def test_deals_send_filter_json(itad: ItadClient) -> None:
 
 
 @respx.mock
+async def test_deals_sort_defaults_to_trending(itad: ItadClient) -> None:
+    """При sort=-cut наверху всегда ~100%, и кнопки порога скидки
+    визуально ничего не меняли."""
+    route = respx.get(DEALS_URL).mock(
+        return_value=httpx.Response(200, json={"list": [], "hasMore": False})
+    )
+
+    await itad.deals("KZ")
+
+    assert route.calls.last.request.url.params["sort"] == "-trending"
+
+
+@respx.mock
+async def test_deals_send_shop_ids(itad: ItadClient) -> None:
+    route = respx.get(DEALS_URL).mock(
+        return_value=httpx.Response(200, json={"list": [], "hasMore": False})
+    )
+
+    await itad.deals("KZ", shops=[61, 35])
+
+    assert route.calls.last.request.url.params["shops"] == "61,35"
+
+
+@respx.mock
 async def test_shops_directory(itad: ItadClient) -> None:
     respx.get(SHOPS_URL).mock(
         return_value=httpx.Response(
@@ -321,17 +351,27 @@ class TestDealFilter:
     """Диапазоны у ITAD требуют обоих концов — отсутствующий край это null."""
 
     def test_only_cut(self) -> None:
-        assert _deal_filter(75, None, games_only=False) == {
+        assert _deal_filter(75, None, games_only=False, quality=False) == {
             "cut": {"min": 75, "max": None}
         }
 
     def test_only_price(self) -> None:
-        assert _deal_filter(0, Decimal("10.50"), games_only=False) == {
+        assert _deal_filter(0, Decimal("10.50"), games_only=False, quality=False) == {
             "price": {"min": None, "max": 10.5}
         }
 
     def test_games_only_excludes_dlc(self) -> None:
-        assert _deal_filter(0, None, games_only=True) == {"type": [1]}
+        assert _deal_filter(0, None, games_only=True, quality=False) == {"type": [1]}
 
     def test_empty(self) -> None:
-        assert _deal_filter(0, None, games_only=False) == {}
+        assert _deal_filter(0, None, games_only=False, quality=False) == {}
+
+    def test_quality_floor_filters_shovelware(self) -> None:
+        """Без порога выдача забита ассет-флипами с одинаковым ценником."""
+        filters = _deal_filter(0, None, games_only=False, quality=True)
+
+        assert filters["steamCount"] == {"min": MIN_REVIEWS, "max": None}
+        assert filters["steamPerc"] == {"min": MIN_SCORE, "max": 100}
+
+    def test_quality_is_on_by_default(self) -> None:
+        assert "steamCount" in _deal_filter(0, None, games_only=True)

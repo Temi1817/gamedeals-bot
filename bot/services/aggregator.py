@@ -275,7 +275,7 @@ class Aggregator:
                 country,
                 limit=limit,
                 offset=offset,
-                sort="-cut",
+                sort="-trending",
                 min_cut=min_cut,
                 max_price=itad_max,
                 shops=shop_ids or None,

@@ -55,13 +55,23 @@ def _price(raw: Any) -> tuple[Decimal, str] | None:
     return None
 
 
+# Порог «живой» игры. Без него выдача забита ассет-флипами: десятки
+# безымянных игр с одинаковым ценником $29.99 → $1.49 и скидкой −95%.
+MIN_REVIEWS = 50
+MIN_SCORE = 60
+
+
 def _deal_filter(
-    min_cut: int, max_price: Decimal | None, games_only: bool
+    min_cut: int,
+    max_price: Decimal | None,
+    games_only: bool,
+    quality: bool = True,
 ) -> dict[str, Any]:
     """Собирает JSON-фильтр для `/deals/v2`.
 
     Диапазоны требуют обоих концов, отсутствующий край — `null`.
     `type: [1]` оставляет только игры, отсекая DLC и издания.
+    `quality` отсеивает мусор по числу отзывов и рейтингу в Steam.
     """
     filters: dict[str, Any] = {}
     if min_cut > 0:
@@ -70,6 +80,9 @@ def _deal_filter(
         filters["price"] = {"min": None, "max": float(max_price)}
     if games_only:
         filters["type"] = [1]
+    if quality:
+        filters["steamCount"] = {"min": MIN_REVIEWS, "max": None}
+        filters["steamPerc"] = {"min": MIN_SCORE, "max": 100}
     return filters
 
 
@@ -290,13 +303,20 @@ class ItadClient:
         *,
         limit: int = 20,
         offset: int = 0,
-        sort: str = "-cut",
+        sort: str = "-trending",
         min_cut: int = 0,
         max_price: Decimal | None = None,
         games_only: bool = True,
+        quality: bool = True,
         shops: list[int] | None = None,
     ) -> tuple[list[Deal], int | None]:
         """Актуальные скидки. Возвращает список и offset следующей страницы.
+
+        Сортировка по умолчанию — `-trending`, а не `-cut`. При `-cut`
+        наверху всегда скидки под 100%, поэтому кнопки «от 50%» и «от 75%»
+        визуально ничего не меняли: порог и так был выполнен.
+        Список значений `sort` ITAD проверяет и на неизвестное отвечает 400,
+        в отличие от полей фильтра, которые молча игнорирует.
 
         Порог скидки и потолок цены задаются не отдельными параметрами, а
         полем `filter` — JSON вида `{"cut": {"min": 75, "max": null}}`.
@@ -307,7 +327,7 @@ class ItadClient:
         `max_price` — в валюте ответа, а для KZ это доллары. Пересчёт из
         тенге делает вызывающий код.
         """
-        filters = _deal_filter(min_cut, max_price, games_only)
+        filters = _deal_filter(min_cut, max_price, games_only, quality)
         shop_ids = ",".join(str(s) for s in shops) if shops else ""
         key = (
             f"itad:deals:{country}:{sort}:{limit}:{offset}:{shop_ids}:"
