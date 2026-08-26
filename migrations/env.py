@@ -20,7 +20,12 @@ from bot.db.models import Base
 
 config = context.config
 
-if config.config_file_name is not None:
+# fileConfig перенастраивает логирование целиком по alembic.ini, где root
+# стоит на WARN. Когда миграции гоняет сам бот, это глушит все его INFO-логи,
+# поэтому там мы выставляем configure_logger=False.
+if config.config_file_name is not None and config.attributes.get(
+    "configure_logger", True
+):
     fileConfig(config.config_file_name)
 
 

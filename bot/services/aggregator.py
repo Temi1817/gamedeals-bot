@@ -90,6 +90,45 @@ class Aggregator:
 
         return []
 
+    async def resolve_game(self, key: str) -> Game | None:
+        """Восстанавливает игру по ключу из callback-данных (`Game.key`).
+
+        В `callback_data` Telegram влезает только 64 байта, поэтому карточка
+        носит с собой не игру, а её идентификатор — название и обложку
+        добираем здесь.
+        """
+        prefix, _, value = key.partition(":")
+        if not value:
+            return None
+
+        if prefix == "i":
+            game = Game(title="", itad_id=value)
+        elif prefix == "s":
+            try:
+                game = Game(title="", steam_appid=int(value))
+            except ValueError:
+                return None
+        elif prefix == "c":
+            game = Game(title="", cheapshark_id=value)
+        else:
+            return None
+
+        game = await self._enrich(game)
+        if game.title:
+            return game
+
+        # ITAD не помог (нет ключа или не знает игру) — спросим Steam
+        if game.steam_appid is not None:
+            try:
+                found = await self.steam.details(game.steam_appid)
+            except Exception as exc:
+                log.warning("steam_details_failed", error=str(exc))
+                found = None
+            if found is not None:
+                return _merge(found, game)
+
+        return None
+
     # -------------------------------------------------------------- карточка
     async def game_details(self, game: Game, country: str = "KZ") -> GameDetails:
         """Собирает карточку: цены по магазинам плюс исторический минимум."""

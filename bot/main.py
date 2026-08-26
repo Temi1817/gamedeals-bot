@@ -15,6 +15,7 @@ from bot.config import ROOT_DIR, Settings, get_settings
 from bot.db.session import create_sessionmaker, dispose_engine, get_engine
 from bot.handlers import build_router
 from bot.middlewares import DbSessionMiddleware, UserMiddleware
+from bot.services.factory import Services, build_services
 from bot.utils.logging import get_logger, setup_logging
 
 log = get_logger(__name__)
@@ -38,6 +39,8 @@ def _run_migrations_sync(root: Path) -> None:
 
     cfg = Config(str(root / "alembic.ini"))
     cfg.set_main_option("script_location", str(root / "migrations"))
+    # иначе alembic перенастроит логирование под себя и заглушит логи бота
+    cfg.attributes["configure_logger"] = False
     command.upgrade(cfg, "head")
 
 
@@ -46,13 +49,15 @@ async def apply_migrations() -> None:
     log.info("migrations_applied")
 
 
-def create_dispatcher(settings: Settings) -> Dispatcher:
+def create_dispatcher(settings: Settings, services: Services) -> Dispatcher:
     engine = get_engine(settings)
     sessionmaker = create_sessionmaker(engine)
 
     dp = Dispatcher()
     dp["settings"] = settings
     dp["sessionmaker"] = sessionmaker
+    # хендлеры получают агрегатор как обычный аргумент
+    dp["aggregator"] = services.aggregator
 
     # Порядок важен: сначала сессия, потом пользователь (он её использует).
     for observer in (dp.message, dp.callback_query, dp.inline_query):
@@ -135,7 +140,8 @@ async def main() -> None:
         token=settings.bot_token.get_secret_value(),
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
-    dp = create_dispatcher(settings)
+    services = build_services(settings)
+    dp = create_dispatcher(settings, services)
 
     try:
         if settings.use_webhook:
@@ -143,6 +149,7 @@ async def main() -> None:
         else:
             await run_polling(bot, dp, settings)
     finally:
+        await services.close()
         await bot.session.close()
 
 
