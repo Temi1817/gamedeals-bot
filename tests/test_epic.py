@@ -316,3 +316,68 @@ class TestRegionalPrices:
         await epic.offer_for("A")
 
         assert route.call_count == 1
+
+
+class TestTopSellers:
+    """Модуль «Top Sellers» с витрины Epic."""
+
+    def module(self, *nodes: dict[str, object]) -> dict[str, object]:
+        # внутри блока предложения обёрнуты: {id, namespace, offer}
+        wrapped = [{"id": "x", "namespace": "n", "offer": n} for n in nodes]
+        return {
+            "data": {
+                "Storefront": {
+                    "modules": [
+                        {"title": "Trending", "offers": []},
+                        {"title": "Top Sellers", "offers": wrapped},
+                    ]
+                }
+            }
+        }
+
+    @respx.mock
+    async def test_reads_named_module(self, epic: EpicClient) -> None:
+        respx.get(STOREFRONT_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json=self.module(
+                    storefront_node("Dead by Daylight", 620000, 248000),
+                    storefront_node("ARC Raiders", 1890000, 1890000),
+                ),
+            )
+        )
+
+        top = await epic.top_sellers(country="KZ")
+
+        assert [g.title for g, _ in top] == ["Dead by Daylight", "ARC Raiders"]
+        assert top[0][1].price == Decimal("2480.00")
+        assert top[0][1].cut == 60
+
+    @respx.mock
+    async def test_free_items_are_skipped(self, epic: EpicClient) -> None:
+        respx.get(STOREFRONT_URL).mock(
+            return_value=httpx.Response(
+                200, json=self.module(storefront_node("Demo", 0, 0))
+            )
+        )
+
+        assert await epic.top_sellers(country="KZ") == []
+
+    @respx.mock
+    async def test_missing_module(self, epic: EpicClient) -> None:
+        respx.get(STOREFRONT_URL).mock(
+            return_value=httpx.Response(
+                200, json={"data": {"Storefront": {"modules": []}}}
+            )
+        )
+
+        assert await epic.top_sellers(country="KZ") == []
+
+    @respx.mock
+    async def test_limit_is_respected(self, epic: EpicClient) -> None:
+        nodes = [storefront_node(f"Игра {i}", 100000, 100000) for i in range(8)]
+        respx.get(STOREFRONT_URL).mock(
+            return_value=httpx.Response(200, json=self.module(*nodes))
+        )
+
+        assert len(await epic.top_sellers(country="KZ", limit=3)) == 3

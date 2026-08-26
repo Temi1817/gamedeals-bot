@@ -208,3 +208,100 @@ async def test_search_result_is_cached(steam: SteamClient) -> None:
     await steam.search("cyberpunk 2077")  # регистр не должен рождать новый запрос
 
     assert route.call_count == 1
+
+
+# --------------------------------------------------------------------------- #
+# топ продаж
+# --------------------------------------------------------------------------- #
+FEATURED_URL = "https://store.steampowered.com/api/featuredcategories"
+
+
+def featured_item(
+    appid: int,
+    name: str,
+    final: int,
+    original: int | None,
+    cut: int = 0,
+) -> dict[str, object]:
+    return {
+        "id": appid,
+        "name": name,
+        "discount_percent": cut,
+        "original_price": original,
+        "final_price": final,
+        "currency": "KZT",
+        "large_capsule_image": "https://cdn.example/capsule.jpg",
+    }
+
+
+def mock_featured(items: list[dict[str, object]]) -> respx.Route:
+    return respx.get(FEATURED_URL).mock(
+        return_value=httpx.Response(
+            200, json={"top_sellers": {"id": "cat", "name": "Top", "items": items}}
+        )
+    )
+
+
+@respx.mock
+async def test_top_sellers_parsed(steam: SteamClient) -> None:
+    mock_featured(
+        [featured_item(3321460, "Crimson Desert", 2239900, 2799900, cut=20)]
+    )
+
+    top = await steam.top_sellers(country="KZ")
+
+    assert len(top) == 1
+    game, offer = top[0]
+    assert game.title == "Crimson Desert"
+    assert game.steam_appid == 3321460
+    assert offer.price == Decimal("22399.00")
+    assert offer.regular_price == Decimal("27999.00")
+    assert offer.cut == 20
+    assert offer.currency == "KZT"
+
+
+@respx.mock
+async def test_top_sellers_drops_hardware(steam: SteamClient) -> None:
+    """В топе попадаются железки и промо без цены вовсе."""
+    mock_featured(
+        [
+            featured_item(4165910, "Steam Machine", 0, None),
+            featured_item(1091500, "Cyberpunk 2077", 1799900, None),
+        ]
+    )
+
+    top = await steam.top_sellers(country="KZ")
+
+    assert [g.title for g, _ in top] == ["Cyberpunk 2077"]
+
+
+@respx.mock
+async def test_top_sellers_dedupes(steam: SteamClient) -> None:
+    """Одна и та же позиция приходит по нескольку раз."""
+    mock_featured(
+        [
+            featured_item(4165910, "Игра", 100000, None),
+            featured_item(4165910, "Игра", 100000, None),
+            featured_item(1091500, "Другая", 200000, None),
+        ]
+    )
+
+    top = await steam.top_sellers(country="KZ")
+
+    assert [g.steam_appid for g, _ in top] == [4165910, 1091500]
+
+
+@respx.mock
+async def test_top_sellers_respects_limit(steam: SteamClient) -> None:
+    mock_featured(
+        [featured_item(i, f"Игра {i}", 100000, None) for i in range(1, 9)]
+    )
+
+    assert len(await steam.top_sellers(country="KZ", limit=3)) == 3
+
+
+@respx.mock
+async def test_top_sellers_empty_block(steam: SteamClient) -> None:
+    respx.get(FEATURED_URL).mock(return_value=httpx.Response(200, json={}))
+
+    assert await steam.top_sellers(country="KZ") == []

@@ -346,21 +346,23 @@ def _free_line(game: FreeGame, now: datetime) -> str:
 
 
 TOP_TITLES = {
-    "waitlisted": "🔥 <b>Ждут скидку</b>",
-    "popular": "⭐ <b>Самые популярные</b>",
-    "collected": "📚 <b>Чаще всего покупают</b>",
+    "steam": "🎮 <b>Топ продаж Steam</b>",
+    "epic": "🟣 <b>Топ продаж Epic</b>",
+    "all": "🌐 <b>Ждут скидку</b>",
+    "waitlisted": "🌐 <b>Ждут скидку</b>",
 }
 
 TOP_HINTS = {
+    "steam": "Что покупают в Steam прямо сейчас",
+    "epic": "Что покупают в Epic Games Store",
+    "all": "Игры, которых больше всего ждут по скидке",
     "waitlisted": "Игры, которых больше всего ждут по скидке",
-    "popular": "Во что играют больше всего",
-    "collected": "Что чаще всего лежит в библиотеках",
 }
 
 
 def top_list(deals: list[Deal], kind: str, currency: str) -> str:
     """Рейтинг игр с текущей лучшей ценой."""
-    header = TOP_TITLES.get(kind, TOP_TITLES["waitlisted"])
+    header = TOP_TITLES.get(kind, TOP_TITLES["all"])
     hint = TOP_HINTS.get(kind, "")
 
     if not deals:

@@ -22,6 +22,7 @@ from bot.utils.logging import get_logger
 log = get_logger(__name__)
 
 SEARCH_URL = "https://steamcommunity.com/actions/SearchApps/{query}"
+FEATURED_URL = "https://store.steampowered.com/api/featuredcategories"
 DETAILS_URL = "https://store.steampowered.com/api/appdetails"
 STORE_URL = "https://store.steampowered.com/app/{appid}/"
 
@@ -146,6 +147,73 @@ class SteamClient:
             cut=cut,
             url=STORE_URL.format(appid=appid_str),
         )
+
+    # ---------------------------------------------------------- топ продаж
+    async def top_sellers(
+        self, country: str = "KZ", limit: int = 10
+    ) -> list[tuple[Game, Offer]]:
+        """Топ продаж витрины Steam с ценами в валюте региона.
+
+        В выдаче попадаются железо и промо-карточки с нулевой ценой, а одна
+        позиция может повторяться несколько раз — чистим и то, и другое.
+        """
+        key = f"steam:top:{country}"
+
+        async def fetch() -> dict[str, Any]:
+            data = await self.api.get_json(
+                FEATURED_URL, params={"cc": country.lower(), "l": "russian"}
+            )
+            return data if isinstance(data, dict) else {}
+
+        raw = await self.cache.get_or_set(key, self.price_ttl, fetch)
+
+        block = raw.get("top_sellers")
+        items = block.get("items") if isinstance(block, dict) else None
+        if not isinstance(items, list):
+            return []
+
+        result: list[tuple[Game, Offer]] = []
+        seen: set[int] = set()
+        for item in items:
+            parsed = self._parse_featured(item)
+            if parsed is None:
+                continue
+            game, offer = parsed
+            if game.steam_appid in seen:
+                continue
+            seen.add(game.steam_appid or 0)
+            result.append((game, offer))
+            if len(result) >= limit:
+                break
+        return result
+
+    @staticmethod
+    def _parse_featured(item: Any) -> tuple[Game, Offer] | None:
+        if not isinstance(item, dict) or not item.get("name"):
+            return None
+
+        appid = item.get("id")
+        final = from_minor(item.get("final_price"))
+        original = from_minor(item.get("original_price"))
+
+        # железо и промо-карточки приходят без цены вовсе
+        if appid is None or final is None or (final <= 0 and original is None):
+            return None
+
+        game = Game(
+            title=str(item["name"]),
+            steam_appid=int(appid),
+            image_url=item.get("large_capsule_image") or item.get("small_capsule_image"),
+        )
+        offer = Offer(
+            shop=SHOP,
+            price=final,
+            currency=str(item.get("currency") or "KZT"),
+            regular_price=original if original and original > final else None,
+            cut=int(item.get("discount_percent") or 0),
+            url=STORE_URL.format(appid=appid),
+        )
+        return game, offer
 
     # -------------------------------------------------------------- описание
     async def details(self, appid: int, country: str = "KZ") -> Game | None:

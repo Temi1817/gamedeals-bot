@@ -148,9 +148,9 @@ class WatchTargetCB(CallbackData, prefix="wt"):
 
 
 TOP_KINDS: tuple[tuple[str, str], ...] = (
-    ("waitlisted", "🔥 Ждут скидку"),
-    ("popular", "⭐ Популярные"),
-    ("collected", "📚 Покупают"),
+    ("steam", "🎮 Steam"),
+    ("epic", "🟣 Epic"),
+    ("all", "🌐 Все магазины"),
 )
 
 # Насколько ниже текущей цены можно ждать, не набирая сумму руками

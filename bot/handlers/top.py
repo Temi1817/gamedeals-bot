@@ -16,7 +16,7 @@ log = get_logger(__name__)
 router = Router(name="top")
 
 TOP_LIMIT = 10
-DEFAULT_KIND = "waitlisted"
+DEFAULT_KIND = "steam"
 
 
 async def show_top(
@@ -27,7 +27,7 @@ async def show_top(
     *,
     edit: bool = False,
 ) -> None:
-    deals = await aggregator.top_games(kind, country=user.country, limit=TOP_LIMIT)
+    deals = await aggregator.store_top(kind, country=user.country, limit=TOP_LIMIT)
     text = cards.top_list(deals, kind, _currency_for(user.country, "KZT"))
     markup = top_keyboard(kind)
 

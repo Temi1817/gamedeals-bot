@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 from decimal import Decimal
+from typing import Any
 
 from bot.services.cheapshark import CheapSharkClient
 from bot.services.epic import EpicClient
@@ -291,6 +292,40 @@ class Aggregator:
         return prices.get(game.steam_appid)
 
     # ------------------------------------------------------------------ топ
+    async def store_top(
+        self, kind: str = "steam", country: str = "KZ", limit: int = 10
+    ) -> list[Deal]:
+        """Топ продаж конкретного магазина либо общий рейтинг ITAD.
+
+        У Steam и Epic есть собственные витрины с ценами в валюте региона —
+        их и берём, по одному запросу на магазин. `all` отдаёт рейтинг ITAD
+        по всем магазинам сразу.
+        """
+        currency = _currency_for(country, self.default_currency)
+
+        if kind == "steam":
+            pairs = await self._safe_top(self.steam.top_sellers, country, limit)
+        elif kind == "epic":
+            pairs = await self._safe_top(self.epic.top_sellers, country, limit)
+        else:
+            return await self.top_games("waitlisted", country, limit)
+
+        deals: list[Deal] = []
+        for game, offer in pairs:
+            converted = await self._convert(offer, currency)
+            deals.append(Deal(game=game, offer=converted))
+        return deals
+
+    async def _safe_top(
+        self, fetch: Any, country: str, limit: int
+    ) -> list[tuple[Game, Offer]]:
+        try:
+            result: list[tuple[Game, Offer]] = await fetch(country=country, limit=limit)
+            return result
+        except Exception as exc:
+            log.warning("store_top_failed", error=str(exc))
+            return []
+
     async def top_games(
         self, kind: str = "waitlisted", country: str = "KZ", limit: int = 10
     ) -> list[Deal]:

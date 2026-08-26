@@ -15,7 +15,7 @@ from typing import Any, NamedTuple
 from bot.db.types import from_minor
 from bot.services.cache import TTLCache
 from bot.services.http import ApiClient
-from bot.services.models import EPIC, FreeGame, Offer, Shop
+from bot.services.models import EPIC, FreeGame, Game, Offer, Shop
 from bot.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -153,11 +153,56 @@ def _price_offer(node: dict[str, Any], locale: str) -> Offer | None:
     )
 
 
+def _module_offers(raw: Any, module_title: str) -> list[dict[str, Any]]:
+    """Предложения из блока витрины с заданным заголовком.
+
+    Внутри блока лежат обёртки вида `{id, namespace, offer}`, а название и
+    цена — уже внутри `offer`. Разворачиваем, если обёртка есть.
+    """
+    found: list[dict[str, Any]] = []
+
+    def visit(node: Any) -> None:
+        if found:
+            return
+        if isinstance(node, dict):
+            if str(node.get("title") or "").strip() == module_title:
+                offers = node.get("offers")
+                if isinstance(offers, list):
+                    found.extend(_unwrap(o) for o in offers if isinstance(o, dict))
+                    return
+            for value in node.values():
+                visit(value)
+        elif isinstance(node, list):
+            for value in node:
+                visit(value)
+
+    visit(raw)
+    return [node for node in found if node]
+
+
+def _unwrap(node: dict[str, Any]) -> dict[str, Any]:
+    inner = node.get("offer")
+    return inner if isinstance(inner, dict) else node
+
+
 class EpicClient:
     def __init__(self, api: ApiClient, cache: TTLCache, ttl: float = FREE_TTL) -> None:
         self.api = api
         self.cache = cache
         self.ttl = ttl
+
+    async def _storefront(self, country: str, locale: str) -> dict[str, Any]:
+        """Витрина целиком. Один запрос на регион, дальше из кэша."""
+        key = f"epic:storefront:{country}:{locale}"
+
+        async def fetch() -> dict[str, Any]:
+            data = await self.api.get_json(
+                STOREFRONT_URL, params={"country": country, "locale": locale}
+            )
+            return data if isinstance(data, dict) else {}
+
+        result: dict[str, Any] = await self.cache.get_or_set(key, self.ttl, fetch)
+        return result
 
     async def regional_prices(
         self, country: str = "KZ", locale: str = "en-US"
@@ -171,15 +216,7 @@ class EpicClient:
         Локаль обязательно английская: иначе названия приходят переведёнными
         («Мир наёмных убийц HITMAN») и не сойдутся с названиями от ITAD.
         """
-        key = f"epic:storefront:{country}:{locale}"
-
-        async def fetch() -> dict[str, Any]:
-            data = await self.api.get_json(
-                STOREFRONT_URL, params={"country": country, "locale": locale}
-            )
-            return data if isinstance(data, dict) else {}
-
-        raw = await self.cache.get_or_set(key, self.ttl, fetch)
+        raw = await self._storefront(country, locale)
 
         offers: dict[str, Offer] = {}
         priorities: dict[str, int] = {}
@@ -203,6 +240,43 @@ class EpicClient:
 
         visit(raw)
         return offers
+
+    async def top_sellers(
+        self, country: str = "KZ", locale: str = "en-US", limit: int = 10
+    ) -> list[tuple[Game, Offer]]:
+        """Модуль «Top Sellers» с витрины Epic.
+
+        Витрина состоит из именованных блоков: Top Sellers, Trending,
+        Most Played и других. Берём нужный по заголовку.
+        """
+        raw = await self._storefront(country, locale)
+        offers = _module_offers(raw, "Top Sellers")
+
+        result: list[tuple[Game, Offer]] = []
+        seen: set[str] = set()
+        for node in offers:
+            title = node.get("title")
+            offer = _price_offer(node, locale)
+            if not title or offer is None or offer.price <= 0:
+                continue
+            key = str(title).casefold().strip()
+            if key in seen:
+                continue
+            seen.add(key)
+            slug = _slug(node)
+            result.append(
+                (
+                    Game(
+                        title=str(title),
+                        slug=slug,
+                        image_url=_image(node),
+                    ),
+                    offer,
+                )
+            )
+            if len(result) >= limit:
+                break
+        return result
 
     async def offer_for(
         self, title: str, country: str = "KZ", locale: str = "en-US"
