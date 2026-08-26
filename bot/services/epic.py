@@ -15,13 +15,20 @@ from typing import Any, NamedTuple
 from bot.db.types import from_minor
 from bot.services.cache import TTLCache
 from bot.services.http import ApiClient
-from bot.services.models import FreeGame
+from bot.services.models import EPIC, FreeGame, Offer, Shop
 from bot.utils.logging import get_logger
 
 log = get_logger(__name__)
 
 PROMOTIONS_URL = (
     "https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions"
+)
+# Витрина магазина. Единственный публичный источник цен Epic в валюте
+# региона: каталог (catalog-public-service) требует авторизации, а
+# store.epicgames.com/graphql закрыт Cloudflare. Отдаёт около трёхсот игр
+# из подборок и распродаж — как раз тех, что попадают в /deals.
+STOREFRONT_URL = (
+    "https://store-site-backend-static.ak.epicgames.com/storefrontLayout"
 )
 PRODUCT_URL = "https://store.epicgames.com/{locale}/p/{slug}"
 
@@ -113,11 +120,96 @@ def _giveaway_window(offers: Any) -> _Window | None:
     return None
 
 
+SHOP = Shop(id="epic", name="Epic Games Store", source=EPIC)
+
+# Базовая игра важнее дополнения, если названия совпали
+_TYPE_PRIORITY = {"BASE_GAME": 0, "BUNDLE": 1}
+
+
+def _price_offer(node: dict[str, Any], locale: str) -> Offer | None:
+    """Строит предложение из узла витрины."""
+    price = node.get("price")
+    total = price.get("totalPrice") if isinstance(price, dict) else None
+    if not isinstance(total, dict):
+        return None
+
+    final = from_minor(total.get("discountPrice"))
+    if final is None:
+        return None
+    original = from_minor(total.get("originalPrice"))
+
+    cut = 0
+    if original and original > 0 and final < original:
+        cut = int((original - final) / original * 100)
+
+    slug = _slug(node)
+    return Offer(
+        shop=SHOP,
+        price=final,
+        currency=str(total.get("currencyCode") or "KZT"),
+        regular_price=original if original and original > final else None,
+        cut=cut,
+        url=PRODUCT_URL.format(locale=locale, slug=slug) if slug else None,
+    )
+
+
 class EpicClient:
     def __init__(self, api: ApiClient, cache: TTLCache, ttl: float = FREE_TTL) -> None:
         self.api = api
         self.cache = cache
         self.ttl = ttl
+
+    async def regional_prices(
+        self, country: str = "KZ", locale: str = "en-US"
+    ) -> dict[str, Offer]:
+        """Цены витрины Epic в валюте региона: название → предложение.
+
+        Нужно потому, что у ITAD нет региональных цен для Казахстана и он
+        отдаёт международные. Разница большая: HITMAN World of Assassination
+        стоит в Epic 5 184 ₸, а по данным ITAD выходило 12 807 ₸.
+
+        Локаль обязательно английская: иначе названия приходят переведёнными
+        («Мир наёмных убийц HITMAN») и не сойдутся с названиями от ITAD.
+        """
+        key = f"epic:storefront:{country}:{locale}"
+
+        async def fetch() -> dict[str, Any]:
+            data = await self.api.get_json(
+                STOREFRONT_URL, params={"country": country, "locale": locale}
+            )
+            return data if isinstance(data, dict) else {}
+
+        raw = await self.cache.get_or_set(key, self.ttl, fetch)
+
+        offers: dict[str, Offer] = {}
+        priorities: dict[str, int] = {}
+
+        def visit(node: Any) -> None:
+            if isinstance(node, dict):
+                title = node.get("title")
+                if title:
+                    offer = _price_offer(node, locale)
+                    if offer is not None:
+                        key_title = str(title).casefold().strip()
+                        rank = _TYPE_PRIORITY.get(str(node.get("offerType")), 2)
+                        if rank <= priorities.get(key_title, 99):
+                            offers[key_title] = offer
+                            priorities[key_title] = rank
+                for value in node.values():
+                    visit(value)
+            elif isinstance(node, list):
+                for value in node:
+                    visit(value)
+
+        visit(raw)
+        return offers
+
+    async def offer_for(
+        self, title: str, country: str = "KZ", locale: str = "en-US"
+    ) -> Offer | None:
+        """Цена Epic для игры с точно таким названием, иначе None."""
+        prices = await self.regional_prices(country, locale)
+        return prices.get(title.casefold().strip())
 
     async def free_games(
         self, country: str = "KZ", locale: str = "ru", include_upcoming: bool = True

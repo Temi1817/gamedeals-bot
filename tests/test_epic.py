@@ -8,7 +8,7 @@ from decimal import Decimal
 import httpx
 import respx
 
-from bot.services.epic import PROMOTIONS_URL, EpicClient
+from bot.services.epic import PROMOTIONS_URL, STOREFRONT_URL, EpicClient
 from tests.conftest import epic_element, epic_payload, window
 
 ACTIVE = window("2026-08-20T15:00:00.000Z", "2026-08-27T15:00:00.000Z", 0)
@@ -176,3 +176,143 @@ async def test_broken_payload_gives_empty_list(epic: EpicClient) -> None:
     )
 
     assert await epic.free_games() == []
+
+
+# --------------------------------------------------------------------------- #
+# региональные цены витрины
+# --------------------------------------------------------------------------- #
+def storefront_node(
+    title: str,
+    original: int,
+    discount: int,
+    *,
+    offer_type: str = "BASE_GAME",
+    slug: str = "some-game",
+    currency: str = "KZT",
+) -> dict[str, object]:
+    """Узел витрины в том виде, в каком его отдаёт storefrontLayout."""
+    return {
+        "title": title,
+        "offerType": offer_type,
+        "urlSlug": slug,
+        "offerMappings": [{"pageSlug": slug, "pageType": "productHome"}],
+        "price": {
+            "totalPrice": {
+                "discountPrice": discount,
+                "originalPrice": original,
+                "currencyCode": currency,
+            }
+        },
+    }
+
+
+def storefront(*nodes: dict[str, object]) -> dict[str, object]:
+    return {"data": {"Storefront": {"modules": [{"offers": list(nodes)}]}}}
+
+
+def mock_storefront(nodes: list[dict[str, object]]) -> respx.Route:
+    return respx.get(STOREFRONT_URL).mock(
+        return_value=httpx.Response(200, json=storefront(*nodes))
+    )
+
+
+class TestRegionalPrices:
+    """Витрина — единственный публичный источник цен Epic в валюте региона."""
+
+    @respx.mock
+    async def test_parses_kzt_price(self, epic: EpicClient) -> None:
+        # снято живым запросом: у ITAD выходило 12 807 ₸ вместо 5 184 ₸
+        mock_storefront(
+            [storefront_node("HITMAN World of Assassination", 1296000, 518400)]
+        )
+
+        offer = await epic.offer_for("HITMAN World of Assassination")
+
+        assert offer is not None
+        assert offer.price == Decimal("5184.00")
+        assert offer.regular_price == Decimal("12960.00")
+        assert offer.currency == "KZT"
+        assert offer.cut == 60
+
+    @respx.mock
+    async def test_english_locale_is_requested(self, epic: EpicClient) -> None:
+        """С русской локалью названия переводятся и не сойдутся с ITAD."""
+        route = mock_storefront([])
+
+        await epic.regional_prices(country="KZ")
+
+        params = route.calls.last.request.url.params
+        assert params["locale"] == "en-US"
+        assert params["country"] == "KZ"
+
+    @respx.mock
+    async def test_title_match_is_exact(self, epic: EpicClient) -> None:
+        mock_storefront(
+            [
+                storefront_node("Dead by Daylight", 620000, 248000),
+                storefront_node(
+                    "Dead by Daylight - Alien Chapter Pack", 370500, 185200,
+                    offer_type="ADD_ON",
+                ),
+            ]
+        )
+
+        offer = await epic.offer_for("Dead by Daylight")
+
+        assert offer is not None
+        assert offer.price == Decimal("2480.00")
+
+    @respx.mock
+    async def test_base_game_wins_over_addon(self, epic: EpicClient) -> None:
+        """При совпадении названий базовая игра важнее дополнения."""
+        mock_storefront(
+            [
+                storefront_node("Some Game", 100000, 90000, offer_type="ADD_ON"),
+                storefront_node("Some Game", 620000, 248000, offer_type="BASE_GAME"),
+            ]
+        )
+
+        offer = await epic.offer_for("Some Game")
+
+        assert offer is not None
+        assert offer.price == Decimal("2480.00")
+
+    @respx.mock
+    async def test_unknown_game_returns_none(self, epic: EpicClient) -> None:
+        """Витрина покрывает не весь каталог — тогда останется цена ITAD."""
+        mock_storefront([storefront_node("Dead by Daylight", 620000, 248000)])
+
+        assert await epic.offer_for("Игры нет на витрине") is None
+
+    @respx.mock
+    async def test_no_discount_hides_old_price(self, epic: EpicClient) -> None:
+        mock_storefront([storefront_node("Full Price Game", 500000, 500000)])
+
+        offer = await epic.offer_for("Full Price Game")
+
+        assert offer is not None
+        assert offer.regular_price is None
+        assert offer.cut == 0
+
+    @respx.mock
+    async def test_case_insensitive_match(self, epic: EpicClient) -> None:
+        mock_storefront([storefront_node("Dead by Daylight", 620000, 248000)])
+
+        assert await epic.offer_for("DEAD BY DAYLIGHT") is not None
+
+    @respx.mock
+    async def test_broken_payload_gives_empty_map(self, epic: EpicClient) -> None:
+        respx.get(STOREFRONT_URL).mock(
+            return_value=httpx.Response(200, json={"data": None})
+        )
+
+        assert await epic.regional_prices() == {}
+
+    @respx.mock
+    async def test_storefront_is_cached(self, epic: EpicClient) -> None:
+        route = mock_storefront([storefront_node("A", 100, 100)])
+
+        await epic.offer_for("A")
+        await epic.offer_for("A")
+
+        assert route.call_count == 1

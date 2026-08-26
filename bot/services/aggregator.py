@@ -29,6 +29,7 @@ from bot.services.gog import GogClient
 from bot.services.itad import ItadClient
 from bot.services.models import (
     CHEAPSHARK,
+    EPIC,
     ITAD,
     KEY_CHEAPSHARK,
     KEY_ITAD,
@@ -53,6 +54,7 @@ log = get_logger(__name__)
 # Как магазин называется в справочнике ITAD — по имени ищем, что заменить
 STEAM_SHOP_NAMES = frozenset({"steam"})
 GOG_SHOP_NAMES = frozenset({"gog", "gog.com"})
+EPIC_SHOP_NAMES = frozenset({"epic game store", "epic games store", "epic"})
 GOG = "gog"
 
 
@@ -174,6 +176,11 @@ class Aggregator:
             offers = _replace_shop(offers, gog_offer, GOG_SHOP_NAMES)
             sources.append(GOG)
 
+        epic_offer = await self._epic_offer(game, country)
+        if epic_offer is not None:
+            offers = _replace_shop(offers, epic_offer, EPIC_SHOP_NAMES)
+            sources.append(EPIC)
+
         offers = filter_offers(offers, shops or set())
         offers = await self._convert_all(offers, currency)
         offers.sort(key=lambda o: (o.is_reseller, o.sort_key))
@@ -250,6 +257,17 @@ class Aggregator:
             return [], low
 
         return offers, low or cs_low
+
+    async def _epic_offer(self, game: Game, country: str) -> Offer | None:
+        """Реальная цена Epic для региона. Витрина покрывает не весь
+        каталог, поэтому для многих игр вернётся None и останется ITAD."""
+        if not game.title:
+            return None
+        try:
+            return await self.epic.offer_for(game.title, country=country)
+        except Exception as exc:
+            log.warning("epic_price_failed", error=str(exc), game=game.title)
+            return None
 
     async def _gog_offer(self, game: Game, country: str) -> Offer | None:
         """Реальная цена GOG для региона вместо международной из ITAD."""
