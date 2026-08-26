@@ -1,0 +1,19 @@
+services:
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # В контейнере база всегда по абсолютному пути в томе, что бы ни
+      # стояло в .env: иначе при пересборке образа история потеряется.
+      DATABASE_URL: sqlite+aiosqlite:////app/data/bot.db
+    volumes:
+      - bot-data:/app/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  bot-data:
