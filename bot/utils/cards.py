@@ -21,6 +21,20 @@ CAPTION_LIMIT = 1024
 MEDALS = ("🥇", "🥈", "🥉")
 RULE = "━━━━━━━━━━━━━━━"
 
+# Сколько магазинов показываем помимо лучшего. У популярных игр их бывает
+# полтора десятка с почти одинаковой ценой — сплошной стеной это не читается.
+SHOPS_SHOWN = 5
+
+# Магазины, у которых мы спрашиваем цену напрямую и потому знаем её точно
+# для региона пользователя. Остальные приходят от ITAD по международному
+# прайсу: региональных цен для Казахстана у него нет.
+VERIFIED_SOURCES = frozenset({"steam", "gog", "epic"})
+
+
+def _is_exact(offer: Offer) -> bool:
+    """Знаем ли мы цену этого магазина точно для региона пользователя."""
+    return offer.shop.source in VERIFIED_SOURCES
+
 
 def _display_price(offer: Offer) -> str:
     """Цена в валюте региона, если пересчёт есть, иначе родная."""
@@ -38,8 +52,28 @@ def _display_regular(offer: Offer) -> str | None:
     return format_price(offer.regular_price, offer.currency)
 
 
+def _amount(offer: Offer) -> str:
+    """Сумма со значком приблизительности, если цена не точная.
+
+    Знак ≈ несёт смысл: у такого магазина мы знаем только международный
+    прайс, и на месте цена может оказаться другой.
+    """
+    if offer.is_free:
+        return "<b>бесплатно</b> 🎉"
+    price = escape(_display_price(offer))
+    return f"<b>{price}</b>" if _is_exact(offer) else f"≈<b>{price}</b>"
+
+
+def _plural(count: int, one: str, few: str, many: str) -> str:
+    if count % 10 == 1 and count % 100 != 11:
+        return one
+    if 2 <= count % 10 <= 4 and not 12 <= count % 100 <= 14:
+        return few
+    return many
+
+
 def offer_line(offer: Offer, position: int | None = None) -> str:
-    """Строка магазина: было → стало, скидка, и родная валюта, если считали."""
+    """Строка магазина: было → стало и скидка."""
     marker = ""
     if position is not None:
         marker = MEDALS[position] if position < len(MEDALS) else "▫️"
@@ -47,22 +81,17 @@ def offer_line(offer: Offer, position: int | None = None) -> str:
     shop = link(offer.shop.name, offer.url)
     head = f"{marker} <b>{shop}</b>" if marker else f"<b>{shop}</b>"
 
-    if offer.is_free:
-        price = "<b>бесплатно</b> 🎉"
-    else:
-        price = f"<b>{escape(_display_price(offer))}</b>"
-
-    money = [price]
+    money = [_amount(offer)]
     if (was := _display_regular(offer)) is not None:
         money.insert(0, f"<s>{escape(was)}</s> →")
     if cut := format_discount(offer.cut):
-        money.append(f"<b>{cut}</b>")
+        money.append(f"· <b>{cut}</b>")
 
-    line = f"{head}\n   {' '.join(money)}"
+    line = head + "\n   " + " ".join(money)
 
-    # Если цену пересчитали, показываем и исходную — чтобы было видно,
-    # сколько магазин спишет на самом деле.
-    if offer.converted_price is not None:
+    # Валюту магазина показываем только там, где цена точная: иначе в
+    # скобках оказалась бы международная сумма, которую никто не спишет.
+    if offer.converted_price is not None and _is_exact(offer):
         native = format_price(offer.price, offer.currency)
         line += f"  <i>({escape(native)})</i>"
     if offer.is_reseller:
@@ -71,8 +100,34 @@ def offer_line(offer: Offer, position: int | None = None) -> str:
     return line
 
 
+def _hero(offer: Offer) -> list[str]:
+    """Крупный блок с лучшей ценой — то, ради чего открывают карточку."""
+    lines = ["💰 <b>Лучшая цена</b>", f"   {_amount(offer)}"]
+
+    tail = [link(offer.shop.name, offer.url)]
+    if cut := format_discount(offer.cut):
+        tail.append(cut)
+    if (was := _display_regular(offer)) is not None:
+        tail.append(f"было <s>{escape(was)}</s>")
+    lines.append("   " + " · ".join(tail))
+
+    if offer.converted_price is not None and _is_exact(offer):
+        native = format_price(offer.price, offer.currency)
+        lines.append(f"   <i>спишут {escape(native)}</i>")
+    return lines
+
+
+def _rest_line(offers: list[Offer]) -> str:
+    """Свёрнутый хвост списка: сколько магазинов и от какой цены."""
+    cheapest = min(offers, key=lambda o: o.sort_key)
+    price = escape(_display_price(cheapest))
+    approx = "" if _is_exact(cheapest) else "≈"
+    word = _plural(len(offers), "магазин", "магазина", "магазинов")
+    return f"   <i>и ещё {len(offers)} {word} — от {approx}{price}</i>"
+
+
 def game_card(details: GameDetails, country: str = "KZ") -> str:
-    """Карточка игры: магазины по возрастанию цены, минимум и вердикт."""
+    """Карточка игры: лучшая цена, магазины по возрастанию, минимум, вердикт."""
     game = details.game
     lines = [f"🎮 <b>{escape(game.title)}</b>"]
 
@@ -85,29 +140,38 @@ def game_card(details: GameDetails, country: str = "KZ") -> str:
     shop_offers = [o for o in details.offers if not o.is_reseller]
     reseller_offers = [o for o in details.offers if o.is_reseller]
 
-    lines.append(RULE)
-    lines.append("🏬 <b>Где купить</b>")
-    lines.append("")
-    for index, offer in enumerate(shop_offers):
-        lines.append(offer_line(offer, index))
+    best = details.best_offer
+    if best is not None:
+        lines.append(RULE)
+        lines.extend(_hero(best))
+
+    others = [o for o in shop_offers if o is not best]
+    if others:
+        lines.append(RULE)
+        lines.append("🏬 <b>Другие магазины</b>")
+        lines.append("")
+        for index, offer in enumerate(others[:SHOPS_SHOWN]):
+            lines.append(offer_line(offer, index + 1))
+        if len(others) > SHOPS_SHOWN:
+            lines.append("")
+            lines.append(_rest_line(others[SHOPS_SHOWN:]))
 
     if reseller_offers:
         lines.append("")
         lines.append("🔑 <b>Ключи у реселлеров</b>")
         lines.append("")
-        for offer in reseller_offers[:3]:
+        for offer in reseller_offers[:2]:
             lines.append(offer_line(offer))
 
-    best = details.best_offer
     low = details.historical_low
-
     if low is not None:
         lines.append(RULE)
-        when = f" · {format_date(low.at)}" if low.at else ""
+        note = " · <i>международный</i>" if low.converted else ""
         where = f" · {escape(low.shop)}" if low.shop else ""
+        when = f" · {format_date(low.at)}" if low.at else ""
+        lines.append("📉 <b>Минимум за всё время</b>")
         lines.append(
-            f"📉 <b>Минимум за всё время</b>\n"
-            f"   {escape(format_price(low.price, low.currency))}{where}{when}"
+            f"   {escape(format_price(low.price, low.currency))}{where}{when}{note}"
         )
 
     if best is not None:
@@ -124,42 +188,27 @@ def game_card(details: GameDetails, country: str = "KZ") -> str:
     return "\n".join(lines)
 
 
-# Магазины, у которых мы спрашиваем цену напрямую и потому знаем её точно
-# для региона пользователя. Остальные приходят от ITAD по международному
-# прайсу: у ITAD нет региональных цен для Казахстана.
-VERIFIED_SOURCES = frozenset({"steam", "gog", "epic"})
-
-
 def _price_notes(offers: list[Offer]) -> list[str]:
-    """Сноски под карточкой: что за цифры в скобках и чему верить.
+    """Сноска о точности цен.
 
     Список точных магазинов собирается из самой карточки, а не пишется
     текстом: иначе он разъезжается с кодом, стоит подключить ещё один
     магазин напрямую.
     """
-    notes: list[str] = []
     shops = [o for o in offers if not o.is_reseller]
+    exact = sorted({o.shop.name for o in shops if _is_exact(o)})
 
-    if any(o.converted_price is not None for o in offers):
-        notes.append("<i>В скобках — сумма, которую спишет магазин.</i>")
+    if not any(not _is_exact(o) for o in shops):
+        return []
 
-    exact = sorted({o.shop.name for o in shops if o.shop.source in VERIFIED_SOURCES})
-    international = [o for o in shops if o.shop.source not in VERIFIED_SOURCES]
-
-    if international and exact:
+    if exact:
         names = ", ".join(escape(name) for name in exact)
-        notes.append(
-            f"<i>✅ Точные цены для твоего региона: {names}.\n"
-            "⚠️ Остальные — международный прайс, на месте может быть "
-            "дешевле.</i>"
-        )
-    elif international:
-        notes.append(
-            "<i>⚠️ Цены показаны по международному прайсу — в самом магазине "
-            "для Казахстана может быть дешевле.</i>"
-        )
-
-    return ["", *notes] if notes else []
+        return [
+            "",
+            f"<i>✅ Точная цена: {names}\n"
+            "≈ — международный прайс, в магазине может быть дешевле</i>",
+        ]
+    return ["", "<i>≈ — международный прайс, в магазине может быть дешевле</i>"]
 
 
 def search_results(query: str, count: int) -> str:
@@ -222,17 +271,16 @@ def deals_list(deals: list[Deal], page: int, currency: str) -> str:
     for deal in deals:
         offer = deal.offer
         title = link(deal.game.title, offer.url)
-        cut = format_discount(offer.cut)
 
-        if offer.is_free:
-            price = "<b>бесплатно</b> 🎉"
-        else:
-            price = f"<b>{escape(_display_price(offer))}</b>"
+        price = _amount(offer)
         if (was := _display_regular(offer)) is not None:
             price = f"<s>{escape(was)}</s> → {price}"
 
-        lines.append(f"<b>{cut}</b> · <b>{title}</b>")
-        lines.append(f"   {price}  ·  {escape(offer.shop.name)}")
+        cut = format_discount(offer.cut)
+        head = f"<b>{cut}</b> · {title}" if cut else f"<b>{title}</b>"
+
+        lines.append(head)
+        lines.append(f"   {price} · {escape(offer.shop.name)}")
         lines.append("")
 
     return "\n".join(lines).rstrip()

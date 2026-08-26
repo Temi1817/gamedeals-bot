@@ -20,6 +20,8 @@ from bot.services.models import (
 from bot.utils import cards
 from bot.utils.formatting import NBSP
 
+GOG = "gog"
+
 CYBERPUNK = Game(title="Cyberpunk 2077", itad_id="itad-1", steam_appid=1091500)
 
 
@@ -58,12 +60,21 @@ class TestOfferLine:
         assert f"17{NBSP}999{NBSP}₸" in line
         assert "≈" not in line
 
-    def test_converted_price_is_shown(self) -> None:
-        """Основная сумма — в валюте региона, исходная уходит в скобки."""
-        line = cards.offer_line(offer("GOG", "17.99", converted="8231"))
+    def test_exact_shop_shows_native_currency(self) -> None:
+        """У точной цены в скобках видно, сколько спишет магазин."""
+        line = cards.offer_line(offer("GOG", "17.99", converted="8231", source=GOG))
 
         assert f"<b>8{NBSP}231{NBSP}₸</b>" in line
         assert "<i>($17.99)</i>" in line
+        assert "≈" not in line
+
+    def test_international_price_is_marked_approximate(self) -> None:
+        """У ITAD нет цен для KZ — такую сумму нельзя выдавать за точную."""
+        line = cards.offer_line(offer("Humble Store", "59.99", converted="27448"))
+
+        assert f"≈<b>27{NBSP}448{NBSP}₸</b>" in line
+        # международную сумму в скобках не показываем: её никто не спишет
+        assert "($59.99)" not in line
 
     def test_discount_and_old_price(self) -> None:
         line = cards.offer_line(offer("GOG", "17.99", cut=70, regular="59.99"))
@@ -73,7 +84,9 @@ class TestOfferLine:
 
     def test_full_price_comes_before_sale_price(self) -> None:
         """Читается как «было столько — стало столько»."""
-        line = cards.offer_line(offer("GOG", "17.99", cut=70, regular="59.99"))
+        line = cards.offer_line(
+            offer("GOG", "17.99", cut=70, regular="59.99", source=GOG)
+        )
 
         assert "<s>$59.99</s> → <b>$17.99</b>" in line
         assert line.index("59.99") < line.index("17.99")
@@ -116,7 +129,7 @@ class TestGameCard:
         text = cards.game_card(details)
 
         assert "Cyberpunk 2077" in text
-        assert "Где купить" in text
+        assert "Лучшая цена" in text
         assert "Минимум за всё время" in text
         assert "17.06.2026" in text
         assert "GOG" in text
@@ -139,8 +152,8 @@ class TestGameCard:
             game=CYBERPUNK, offers=[offer("Steam", "17999", "KZT", source=STEAM)]
         )
 
-        assert "спишет магазин" in cards.game_card(converted)
-        assert "спишет магазин" not in cards.game_card(native)
+        assert "международный прайс" in cards.game_card(converted)
+        assert "международный прайс" not in cards.game_card(native)
 
     def test_resellers_go_to_separate_block(self) -> None:
         details = GameDetails(
@@ -154,13 +167,77 @@ class TestGameCard:
         text = cards.game_card(details)
 
         assert "Ключи у реселлеров" in text
-        assert text.index("Где купить") < text.index("Ключи у реселлеров")
+        assert text.index("Лучшая цена") < text.index("Ключи у реселлеров")
 
     def test_empty_offers(self) -> None:
         text = cards.game_card(GameDetails(game=CYBERPUNK))
 
         assert "Цен по этой игре сейчас нет" in text
-        assert "Где купить" not in text
+        assert "Лучшая цена" not in text
+
+    def test_best_price_is_hoisted_to_the_top(self) -> None:
+        """Ради лучшей цены карточку и открывают — она идёт первой."""
+        details = GameDetails(
+            game=CYBERPUNK,
+            offers=[
+                offer("Epic", "5184", "KZT", cut=60, regular="12960", source="epic"),
+                offer("Steam", "6600", "KZT", source=STEAM),
+            ],
+        )
+
+        text = cards.game_card(details)
+
+        assert "Лучшая цена" in text
+        assert text.index("Лучшая цена") < text.index("Другие магазины")
+        # лучший магазин не дублируется в списке остальных
+        assert text.count("Epic") == 1
+
+    def test_long_shop_list_is_collapsed(self) -> None:
+        """Полтора десятка магазинов сплошной стеной не читаются."""
+        offers = [
+            offer(f"Магазин {i}", str(1000 + i * 100), "KZT", source=STEAM)
+            for i in range(12)
+        ]
+        details = GameDetails(game=CYBERPUNK, offers=offers)
+
+        text = cards.game_card(details)
+
+        # один в блоке лучшей цены плюс SHOPS_SHOWN в списке
+        assert text.count("Магазин") == 1 + cards.SHOPS_SHOWN + 0
+        assert "и ещё 6 магазинов" in text
+
+    def test_collapsed_line_shows_cheapest_of_the_rest(self) -> None:
+        offers = [
+            offer("A", "100", "KZT", source=STEAM),
+            *[
+                offer(f"Ш{i}", str(500 + i), "KZT", source=STEAM)
+                for i in range(cards.SHOPS_SHOWN + 3)
+            ],
+        ]
+        details = GameDetails(game=CYBERPUNK, offers=offers)
+
+        text = cards.game_card(details)
+
+        assert f"от 505{NBSP}₸" in text
+
+    def test_short_list_has_no_collapse_line(self) -> None:
+        details = GameDetails(
+            game=CYBERPUNK,
+            offers=[
+                offer("A", "100", "KZT", source=STEAM),
+                offer("B", "200", "KZT", source=STEAM),
+            ],
+        )
+
+        assert "и ещё" not in cards.game_card(details)
+
+    def test_hero_shows_native_currency_for_exact_shop(self) -> None:
+        details = GameDetails(
+            game=CYBERPUNK,
+            offers=[offer("GOG", "8.99", converted="4113", source=GOG)],
+        )
+
+        assert "спишут $8.99" in cards.game_card(details)
 
     def test_title_is_escaped(self) -> None:
         details = GameDetails(game=Game(title="Tom & Jerry <b>"), offers=[])
@@ -323,3 +400,14 @@ class TestFreeGames:
         ]
 
         assert f"<s>7{NBSP}540{NBSP}₸</s>" in cards.free_games(games)
+
+
+class TestPlural:
+    """Русские окончания: «1 магазин», «2 магазина», «11 магазинов»."""
+
+    def test_forms(self) -> None:
+        cases = {1: "магазин", 2: "магазина", 4: "магазина", 5: "магазинов",
+                 11: "магазинов", 21: "магазин", 22: "магазина", 25: "магазинов",
+                 111: "магазинов", 112: "магазинов"}
+        for count, expected in cases.items():
+            assert cards._plural(count, "магазин", "магазина", "магазинов") == expected
