@@ -127,23 +127,36 @@ def game_card(details: GameDetails, country: str = "KZ") -> str:
 # Магазины, у которых мы спрашиваем цену напрямую и потому знаем её точно
 # для региона пользователя. Остальные приходят от ITAD по международному
 # прайсу: у ITAD нет региональных цен для Казахстана.
-VERIFIED_SOURCES = frozenset({"steam", "gog"})
+VERIFIED_SOURCES = frozenset({"steam", "gog", "epic"})
 
 
 def _price_notes(offers: list[Offer]) -> list[str]:
-    """Сноски под карточкой: что за цифры в скобках и чему верить."""
+    """Сноски под карточкой: что за цифры в скобках и чему верить.
+
+    Список точных магазинов собирается из самой карточки, а не пишется
+    текстом: иначе он разъезжается с кодом, стоит подключить ещё один
+    магазин напрямую.
+    """
     notes: list[str] = []
+    shops = [o for o in offers if not o.is_reseller]
 
     if any(o.converted_price is not None for o in offers):
         notes.append("<i>В скобках — сумма, которую спишет магазин.</i>")
 
-    international = [
-        o for o in offers if not o.is_reseller and o.shop.source not in VERIFIED_SOURCES
-    ]
-    if international:
+    exact = sorted({o.shop.name for o in shops if o.shop.source in VERIFIED_SOURCES})
+    international = [o for o in shops if o.shop.source not in VERIFIED_SOURCES]
+
+    if international and exact:
+        names = ", ".join(escape(name) for name in exact)
         notes.append(
-            "<i>⚠️ Цены Steam и GOG — для твоего региона. Остальные магазины "
-            "показаны по международному прайсу: на месте может быть дешевле.</i>"
+            f"<i>✅ Точные цены для твоего региона: {names}.\n"
+            "⚠️ Остальные — международный прайс, на месте может быть "
+            "дешевле.</i>"
+        )
+    elif international:
+        notes.append(
+            "<i>⚠️ Цены показаны по международному прайсу — в самом магазине "
+            "для Казахстана может быть дешевле.</i>"
         )
 
     return ["", *notes] if notes else []
