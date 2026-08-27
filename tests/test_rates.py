@@ -56,9 +56,7 @@ async def test_cross_rate_without_usd(rates: RatesClient) -> None:
 async def test_same_currency_skips_request(rates: RatesClient) -> None:
     """Одинаковые валюты не должны дёргать сеть вообще."""
     with respx.mock:
-        route = respx.get(RATES_URL).mock(
-            return_value=httpx.Response(200, json=RATES)
-        )
+        route = respx.get(RATES_URL).mock(return_value=httpx.Response(200, json=RATES))
 
         result = await rates.convert(Decimal("100"), "KZT", "KZT")
 
@@ -83,9 +81,7 @@ async def test_unknown_currency_returns_none(rates: RatesClient) -> None:
 
 @respx.mock
 async def test_failed_response_returns_none(rates: RatesClient) -> None:
-    respx.get(RATES_URL).mock(
-        return_value=httpx.Response(200, json={"result": "error"})
-    )
+    respx.get(RATES_URL).mock(return_value=httpx.Response(200, json={"result": "error"}))
 
     assert await rates.convert(Decimal("10"), "USD", "KZT") is None
 

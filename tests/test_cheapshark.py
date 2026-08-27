@@ -24,9 +24,7 @@ def mock_stores() -> respx.Route:
 
 @respx.mock
 async def test_search_parses_games(cheapshark: CheapSharkClient) -> None:
-    respx.get(GAMES_URL).mock(
-        return_value=httpx.Response(200, json=CHEAPSHARK_SEARCH)
-    )
+    respx.get(GAMES_URL).mock(return_value=httpx.Response(200, json=CHEAPSHARK_SEARCH))
 
     games = await cheapshark.search("Cyberpunk")
 
@@ -46,9 +44,7 @@ async def test_offers_are_marked_as_reseller_usd(
 ) -> None:
     """Цены CheapShark — доллары и ключи, их нельзя сравнивать с тенге."""
     mock_stores()
-    respx.get(GAMES_URL).mock(
-        return_value=httpx.Response(200, json=CHEAPSHARK_GAME)
-    )
+    respx.get(GAMES_URL).mock(return_value=httpx.Response(200, json=CHEAPSHARK_GAME))
 
     _, offers, _ = await cheapshark.offers("202350")
 
@@ -61,9 +57,7 @@ async def test_offers_are_marked_as_reseller_usd(
 @respx.mock
 async def test_offers_sorted_by_price(cheapshark: CheapSharkClient) -> None:
     mock_stores()
-    respx.get(GAMES_URL).mock(
-        return_value=httpx.Response(200, json=CHEAPSHARK_GAME)
-    )
+    respx.get(GAMES_URL).mock(return_value=httpx.Response(200, json=CHEAPSHARK_GAME))
 
     _, offers, _ = await cheapshark.offers("202350")
 
@@ -80,9 +74,7 @@ async def test_offers_sorted_by_price(cheapshark: CheapSharkClient) -> None:
 @respx.mock
 async def test_offers_parse_historical_low(cheapshark: CheapSharkClient) -> None:
     mock_stores()
-    respx.get(GAMES_URL).mock(
-        return_value=httpx.Response(200, json=CHEAPSHARK_GAME)
-    )
+    respx.get(GAMES_URL).mock(return_value=httpx.Response(200, json=CHEAPSHARK_GAME))
 
     game, _, low = await cheapshark.offers("202350")
 
@@ -109,9 +101,7 @@ async def test_unknown_store_gets_placeholder(
 ) -> None:
     """Справочник магазинов не должен ронять разбор предложений."""
     stores = respx.get(STORES_URL).mock(return_value=httpx.Response(500))
-    respx.get(GAMES_URL).mock(
-        return_value=httpx.Response(200, json=CHEAPSHARK_GAME)
-    )
+    respx.get(GAMES_URL).mock(return_value=httpx.Response(200, json=CHEAPSHARK_GAME))
 
     _, offers, _ = await cheapshark.offers("202350")
 

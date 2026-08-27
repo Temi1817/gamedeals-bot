@@ -40,9 +40,7 @@ class User(Base):
     # Канонические ключи магазинов через запятую («steam,gog»).
     # Пустая строка означает «все магазины» — так по умолчанию.
     preferred_shops: Mapped[str] = mapped_column(String(300), default="")
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     watches: Mapped[list[Watch]] = relationship(
         back_populates="user", cascade="all, delete-orphan", lazy="selectin"
@@ -118,9 +116,7 @@ class Watch(Base):
     # цена, о которой уже уведомили: повторное письмо шлём только если стало
     # дешевле неё — иначе бот будет спамить каждый час
     last_notified_price: Mapped[Decimal | None] = mapped_column(Money, default=None)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     user: Mapped[User] = relationship(back_populates="watches")
     game: Mapped[Game] = relationship(lazy="joined")
@@ -157,9 +153,7 @@ class PriceSnapshot(Base):
     game: Mapped[Game] = relationship(back_populates="snapshots")
     shop: Mapped[Shop] = relationship(lazy="joined")
 
-    __table_args__ = (
-        Index("ix_snapshots_game_checked", "game_id", "checked_at"),
-    )
+    __table_args__ = (Index("ix_snapshots_game_checked", "game_id", "checked_at"),)
 
     def __repr__(self) -> str:
         return f"<PriceSnapshot game={self.game_id} {self.price} {self.currency}>"

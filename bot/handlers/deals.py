@@ -74,13 +74,9 @@ async def _show_deals(
     )
 
     if edit:
-        await target.edit_text(
-            text, reply_markup=markup, disable_web_page_preview=True
-        )
+        await target.edit_text(text, reply_markup=markup, disable_web_page_preview=True)
     else:
-        await target.answer(
-            text, reply_markup=markup, disable_web_page_preview=True
-        )
+        await target.answer(text, reply_markup=markup, disable_web_page_preview=True)
 
 
 @router.message(Command("deals"))
@@ -93,9 +89,7 @@ async def cmd_deals(message: Message, user: User, aggregator: Aggregator) -> Non
 
 
 @router.message(F.text.regexp(PRICE_PATTERN))
-async def on_price_filter(
-    message: Message, user: User, aggregator: Aggregator
-) -> None:
+async def on_price_filter(message: Message, user: User, aggregator: Aggregator) -> None:
     """Просто число — значит «покажи скидки дешевле этой суммы»."""
     price = parse_price(message.text or "")
     if price is None:
@@ -103,9 +97,7 @@ async def on_price_filter(
 
     notice = await message.answer("🔥 Ищу скидки…")
     try:
-        await _show_deals(
-            message, user, aggregator, page=0, min_cut=0, max_price=price
-        )
+        await _show_deals(message, user, aggregator, page=0, min_cut=0, max_price=price)
     finally:
         await notice.delete()
     log.info("price_filter", tg_id=user.tg_id, max_price=str(price))

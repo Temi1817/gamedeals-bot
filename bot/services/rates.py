@@ -36,9 +36,7 @@ RATES_TTL = 24 * 60 * 60.0
 class RatesClient:
     """Конвертер валют с базой в USD."""
 
-    def __init__(
-        self, api: ApiClient, cache: TTLCache, ttl: float = RATES_TTL
-    ) -> None:
+    def __init__(self, api: ApiClient, cache: TTLCache, ttl: float = RATES_TTL) -> None:
         self.api = api
         self.cache = cache
         self.ttl = ttl
@@ -62,9 +60,7 @@ class RatesClient:
                 continue
         return rates
 
-    async def convert(
-        self, amount: Decimal, source: str, target: str
-    ) -> Decimal | None:
+    async def convert(self, amount: Decimal, source: str, target: str) -> Decimal | None:
         """Переводит сумму между валютами. `None`, если курса нет."""
         source, target = source.upper(), target.upper()
         if source == target:

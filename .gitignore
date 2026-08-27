@@ -3,7 +3,7 @@
 *.env
 !.env.example
 
-# база
+# база и накопленные замеры цен
 *.db
 *.sqlite
 *.sqlite3
@@ -12,21 +12,37 @@ data/
 # python
 __pycache__/
 *.py[cod]
+*$py.class
 *.egg-info/
+build/
+dist/
 .venv/
 venv/
+env/
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
 .coverage
+coverage.xml
 htmlcov/
+.tox/
 
-# IDE / OS
+# IDE и редакторы
 .idea/
 .vscode/
 *.swp
+*.swo
+*~
+
+# ОС
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# логи
+# логи и временное
 *.log
+tmp/
+
+# деплой на личную инфраструктуру: адреса серверов и логины наружу не идут
+deploy.ps1
+docs/deploy.md

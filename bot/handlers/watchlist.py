@@ -101,8 +101,7 @@ async def cmd_watch(
 
     if game is None:
         await message.answer(
-            f"Не нашёл игру «{escape(title)}». Попробуй написать название "
-            "по-английски."
+            f"Не нашёл игру «{escape(title)}». Попробуй написать название по-английски."
         )
         return
 

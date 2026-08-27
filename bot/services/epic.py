@@ -20,16 +20,12 @@ from bot.utils.logging import get_logger
 
 log = get_logger(__name__)
 
-PROMOTIONS_URL = (
-    "https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions"
-)
+PROMOTIONS_URL = "https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions"
 # Витрина магазина. Единственный публичный источник цен Epic в валюте
 # региона: каталог (catalog-public-service) требует авторизации, а
 # store.epicgames.com/graphql закрыт Cloudflare. Отдаёт около трёхсот игр
 # из подборок и распродаж — как раз тех, что попадают в /deals.
-STOREFRONT_URL = (
-    "https://store-site-backend-static.ak.epicgames.com/storefrontLayout"
-)
+STOREFRONT_URL = "https://store-site-backend-static.ak.epicgames.com/storefrontLayout"
 PRODUCT_URL = "https://store.epicgames.com/{locale}/p/{slug}"
 
 # Раздачи меняются раз в неделю — часа кэша более чем достаточно
@@ -78,8 +74,12 @@ def _image(element: dict[str, Any]) -> str | None:
         for img in images
         if isinstance(img, dict) and img.get("url")
     }
-    for preferred in ("OfferImageWide", "DieselStoreFrontWide", "Thumbnail",
-                      "OfferImageTall"):
+    for preferred in (
+        "OfferImageWide",
+        "DieselStoreFrontWide",
+        "Thumbnail",
+        "OfferImageTall",
+    ):
         if url := by_type.get(preferred):
             return str(url)
     return next((str(u) for u in by_type.values() if u), None)
@@ -315,8 +315,9 @@ class EpicClient:
             games.append(game)
 
         # сначала то, что можно забрать прямо сейчас
-        games.sort(key=lambda g: (g.upcoming, g.ends_at or datetime.max.replace(
-            tzinfo=UTC)))
+        games.sort(
+            key=lambda g: (g.upcoming, g.ends_at or datetime.max.replace(tzinfo=UTC))
+        )
         return games
 
     @staticmethod

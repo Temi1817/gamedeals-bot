@@ -130,8 +130,9 @@ class ApiClient:
                 )
                 await asyncio.sleep(delay)
 
-        raise ApiError(self.source, f"{last_error} после {self.max_retries} повторов",
-                       last_status)
+        raise ApiError(
+            self.source, f"{last_error} после {self.max_retries} повторов", last_status
+        )
 
     def _parse(self, response: httpx.Response) -> Any:
         if response.status_code >= 400:

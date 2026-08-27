@@ -34,8 +34,11 @@ def entry(
         "timestamp": timestamp,
         "shop": {"id": 35, "name": shop},
         "deal": {
-            "price": {"amount": amount, "amountInt": int(amount * 100),
-                      "currency": "USD"},
+            "price": {
+                "amount": amount,
+                "amountInt": int(amount * 100),
+                "currency": "USD",
+            },
             "regular": {"amount": 59.99, "amountInt": 5999, "currency": "USD"},
             "cut": cut,
         },
@@ -80,9 +83,7 @@ class TestItadHistory:
     @respx.mock
     async def test_since_is_always_sent(self, itad: ItadClient) -> None:
         """Без since ITAD отдаёт только последние три месяца."""
-        route = respx.get(HISTORY_URL).mock(
-            return_value=httpx.Response(200, json=[])
-        )
+        route = respx.get(HISTORY_URL).mock(return_value=httpx.Response(200, json=[]))
 
         await itad.price_history(GAME_ID, country="KZ", days=365)
 
@@ -97,8 +98,11 @@ class TestItadHistory:
             return_value=httpx.Response(
                 200,
                 json=[
-                    {"timestamp": "2026-08-25T22:17:54+02:00",
-                     "shop": {"id": 35, "name": "GOG"}, "deal": None},
+                    {
+                        "timestamp": "2026-08-25T22:17:54+02:00",
+                        "shop": {"id": 35, "name": "GOG"},
+                        "deal": None,
+                    },
                     entry("2026-08-26T10:00:00+02:00", 17.99, 70),
                 ],
             )
@@ -137,10 +141,18 @@ class TestDedupeByDay:
 
     def test_keeps_cheapest_of_the_day(self) -> None:
         same_day = [
-            PricePoint(at=datetime(2026, 6, 17, 9, tzinfo=UTC),
-                       price=Decimal("100"), currency="KZT", shop="A"),
-            PricePoint(at=datetime(2026, 6, 17, 18, tzinfo=UTC),
-                       price=Decimal("80"), currency="KZT", shop="B"),
+            PricePoint(
+                at=datetime(2026, 6, 17, 9, tzinfo=UTC),
+                price=Decimal("100"),
+                currency="KZT",
+                shop="A",
+            ),
+            PricePoint(
+                at=datetime(2026, 6, 17, 18, tzinfo=UTC),
+                price=Decimal("80"),
+                currency="KZT",
+                shop="B",
+            ),
         ]
 
         result = _dedupe_by_day(same_day)
@@ -151,11 +163,19 @@ class TestDedupeByDay:
     def test_exact_wins_at_equal_price(self) -> None:
         """При одинаковой цене точка от самой витрины важнее пересчёта."""
         same_day = [
-            PricePoint(at=datetime(2026, 6, 17, 9, tzinfo=UTC),
-                       price=Decimal("100"), currency="KZT", shop="ITAD"),
-            PricePoint(at=datetime(2026, 6, 17, 18, tzinfo=UTC),
-                       price=Decimal("100"), currency="KZT", shop="Steam",
-                       exact=True),
+            PricePoint(
+                at=datetime(2026, 6, 17, 9, tzinfo=UTC),
+                price=Decimal("100"),
+                currency="KZT",
+                shop="ITAD",
+            ),
+            PricePoint(
+                at=datetime(2026, 6, 17, 18, tzinfo=UTC),
+                price=Decimal("100"),
+                currency="KZT",
+                shop="Steam",
+                exact=True,
+            ),
         ]
 
         assert _dedupe_by_day(same_day)[0].exact is True
@@ -220,12 +240,15 @@ class TestHistoryCard:
         """Ради этой строки всё и затевалось: когда ждать следующую скидку."""
         now = datetime.now(UTC)
         points = [
-            PricePoint(at=now - timedelta(days=60), price=Decimal("100"),
-                       currency="KZT", cut=50),
-            PricePoint(at=now - timedelta(days=30), price=Decimal("100"),
-                       currency="KZT", cut=50),
-            PricePoint(at=now - timedelta(days=1), price=Decimal("100"),
-                       currency="KZT", cut=50),
+            PricePoint(
+                at=now - timedelta(days=60), price=Decimal("100"), currency="KZT", cut=50
+            ),
+            PricePoint(
+                at=now - timedelta(days=30), price=Decimal("100"), currency="KZT", cut=50
+            ),
+            PricePoint(
+                at=now - timedelta(days=1), price=Decimal("100"), currency="KZT", cut=50
+            ),
         ]
 
         text = cards.price_history("X", points, "KZT")
@@ -244,9 +267,7 @@ class TestHistoryWindow:
 
     @respx.mock
     async def test_default_window_is_three_years(self, itad: ItadClient) -> None:
-        route = respx.get(HISTORY_URL).mock(
-            return_value=httpx.Response(200, json=[])
-        )
+        route = respx.get(HISTORY_URL).mock(return_value=httpx.Response(200, json=[]))
 
         await itad.price_history(GAME_ID)
 
@@ -276,9 +297,7 @@ class TestVerdictStaleLow:
         assert "+10%" in text
 
     def test_without_date_behaves_as_before(self) -> None:
-        assert "исторический минимум" in cards_verdict(
-            Decimal("100"), Decimal("100")
-        )
+        assert "исторический минимум" in cards_verdict(Decimal("100"), Decimal("100"))
 
     def test_naive_datetime_does_not_crash(self) -> None:
         """История приходит с зоной, но чужим данным лучше не доверять."""
@@ -325,8 +344,7 @@ class TestMixedTimezones:
         assert all(p.at.tzinfo is not None or True for p in result)
 
     def test_card_renders_mixed_without_crash(self) -> None:
-        points = [self.naive(90, "500"), self.aware(60, "400"),
-                  self.naive(30, "300")]
+        points = [self.naive(90, "500"), self.aware(60, "400"), self.naive(30, "300")]
 
         text = cards.price_history("X", points, "KZT")
 

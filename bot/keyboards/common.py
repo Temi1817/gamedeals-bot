@@ -38,9 +38,7 @@ def country_keyboard(current: str) -> InlineKeyboardMarkup:
 
 def settings_keyboard(current_country: str, notify_enabled: bool) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(
-        text=f"🌍 Регион: {current_country}", callback_data="settings:country"
-    )
+    builder.button(text=f"🌍 Регион: {current_country}", callback_data="settings:country")
     builder.button(text="🏬 Магазины", callback_data="settings:shops")
     builder.button(
         text=("🔔 Уведомления: вкл" if notify_enabled else "🔕 Уведомления: выкл"),
@@ -78,7 +76,5 @@ def shops_keyboard(selected: set[str]) -> InlineKeyboardMarkup:
             text=f"{all_mark}🌐 Все магазины", callback_data=ShopCB(key="").pack()
         )
     )
-    builder.row(
-        InlineKeyboardButton(text="⬅️ Назад", callback_data="settings:back")
-    )
+    builder.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="settings:back"))
     return builder.as_markup()

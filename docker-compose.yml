@@ -1,19 +1,43 @@
+# Раскладка под прод. Своя сеть, свой том и жёсткие лимиты — чтобы бот
+# не мог отъесть ресурсы у соседей по хосту и не видел их данные.
+name: gamedeals
+
 services:
   bot:
     build: .
+    image: gamedeals-bot:latest
+    container_name: gamedeals-bot
     restart: unless-stopped
     env_file: .env
     environment:
       # В контейнере база всегда по абсолютному пути в томе, что бы ни
       # стояло в .env: иначе при пересборке образа история потеряется.
       DATABASE_URL: sqlite+aiosqlite:////app/data/bot.db
+      # Расписание задач считается по TIMEZONE из .env, но логи и
+      # cron-триггеры приятнее видеть в местном времени.
+      TZ: Asia/Almaty
     volumes:
       - bot-data:/app/data
+    # 384 МБ, а не 256: при разборе выдачи ITAD пик доходит до ~300 МБ,
+    # на 256 контейнер уходит в OOM посреди поиска.
+    mem_limit: 384m
+    memswap_limit: 384m
+    cpus: 0.5
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+    networks:
+      - gamedeals
+
+networks:
+  gamedeals:
+    name: gamedeals-net
 
 volumes:
   bot-data:
+    name: gamedeals-bot-data

@@ -56,6 +56,4 @@ async def on_top_tab(
 ) -> None:
     await callback.answer()
     if isinstance(callback.message, Message):
-        await show_top(
-            callback.message, user, aggregator, callback_data.kind, edit=True
-        )
+        await show_top(callback.message, user, aggregator, callback_data.kind, edit=True)

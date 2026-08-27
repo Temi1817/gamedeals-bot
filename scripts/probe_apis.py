@@ -105,8 +105,9 @@ async def probe_itad(client: httpx.AsyncClient) -> None:
     game_id: str | None = None
     if isinstance(found, list) and found:
         game_id = found[0].get("id")
-        print(f"\n>>> взят первый результат: id={game_id!r} "
-              f"title={found[0].get('title')!r}")
+        print(
+            f"\n>>> взят первый результат: id={game_id!r} title={found[0].get('title')!r}"
+        )
 
     step("GET /games/lookup/v1 — поиск по Steam appid (1091500)")
     r = await client.get(f"{base}/games/lookup/v1", params={**auth, "appid": 1091500})

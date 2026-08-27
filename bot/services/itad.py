@@ -174,8 +174,9 @@ def _shop(raw: Any) -> Shop:
     if not isinstance(raw, dict):
         return Shop(id="?", name="Неизвестный магазин", source=ITAD)
     shop_id = str(raw.get("id") or "?")
-    return Shop(id=shop_id, name=str(raw.get("name") or f"Магазин {shop_id}"),
-                source=ITAD)
+    return Shop(
+        id=shop_id, name=str(raw.get("name") or f"Магазин {shop_id}"), source=ITAD
+    )
 
 
 def _offer(raw: Any) -> Offer | None:
@@ -195,7 +196,8 @@ def _offer(raw: Any) -> Offer | None:
         price=amount,
         currency=currency,
         # старую цену показываем, только если она реально выше текущей
-        regular_price=regular_amount if regular_amount and regular_amount > amount
+        regular_price=regular_amount
+        if regular_amount and regular_amount > amount
         else None,
         cut=int(raw.get("cut") or 0),
         url=raw.get("url"),
@@ -422,9 +424,7 @@ class ItadClient:
         игры с продажи (`deal: null`). Для графика оставляем только начала
         скидок — иначе он превращается в пилу из нулевых значений.
         """
-        since = (datetime.now(UTC) - timedelta(days=days)).strftime(
-            "%Y-%m-%dT%H:%M:%SZ"
-        )
+        since = (datetime.now(UTC) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
         key = f"itad:history:{country}:{game_id}:{days}"
 
         async def fetch() -> list[dict[str, Any]]:

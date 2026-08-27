@@ -1,5 +1,10 @@
 # GameDeals Bot
 
+[![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
+[![aiogram 3](https://img.shields.io/badge/aiogram-3.x-2CA5E0)](https://docs.aiogram.dev/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 Telegram-бот, который ищет, где PC-игра стоит дешевле всего, и пишет,
 когда она подешевела. Регион по умолчанию — **Казахстан, ₸**.
 
@@ -200,7 +205,23 @@ Alembic · APScheduler · pydantic-settings · structlog
   прайс, публичных API у них нет.
 - **Витрина Epic покрывает не весь каталог** — около трёхсот игр из
   подборок и распродаж. Для остальных остаётся цена ITAD.
-- **История цен своя** копится с нуля: график `📉 История цены` наполняется
-  по мере того, как кто-то открывает карточку игры.
+- **История скидок международная.** ITAD знает её за годы, но в долларах —
+  на графике такие точки помечены `≈`. Наши собственные замеры по Steam,
+  GOG и Epic подмешиваются как точные и со временем вытесняют пересчёт.
 - **Курс валют приблизительный.** Пересчёт в тенге — ориентир, банк
   спишет по своему курсу. Поэтому у неточных цен стоит `≈`.
+- **Календаря распродаж нет.** Публичного API для дат сезонных распродаж
+  не существует ни у Steam, ни у ITAD — подробности в
+  [docs/api-notes.md](docs/api-notes.md).
+
+---
+
+## Участие и лицензия
+
+Как поднять проект, что проверить перед пул-реквестом и на какие грабли
+не стоит наступать — в [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Лицензия — [MIT](LICENSE).
+
+Проект не аффилирован со Steam, Epic Games, GOG, IsThereAnyDeal и другими
+упомянутыми сервисами и использует только их публичные API.

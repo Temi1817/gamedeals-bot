@@ -164,9 +164,7 @@ class WatchRepo:
     async def all_active(self) -> list[Watch]:
         """Все отслеживания вместе с игрой и пользователем — для джобы."""
         result = await self.session.scalars(
-            select(Watch).options(
-                selectinload(Watch.game), selectinload(Watch.user)
-            )
+            select(Watch).options(selectinload(Watch.game), selectinload(Watch.user))
         )
         return list(result)
 

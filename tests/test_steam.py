@@ -244,9 +244,7 @@ def mock_featured(items: list[dict[str, object]]) -> respx.Route:
 
 @respx.mock
 async def test_top_sellers_parsed(steam: SteamClient) -> None:
-    mock_featured(
-        [featured_item(3321460, "Crimson Desert", 2239900, 2799900, cut=20)]
-    )
+    mock_featured([featured_item(3321460, "Crimson Desert", 2239900, 2799900, cut=20)])
 
     top = await steam.top_sellers(country="KZ")
 
@@ -293,9 +291,7 @@ async def test_top_sellers_dedupes(steam: SteamClient) -> None:
 
 @respx.mock
 async def test_top_sellers_respects_limit(steam: SteamClient) -> None:
-    mock_featured(
-        [featured_item(i, f"Игра {i}", 100000, None) for i in range(1, 9)]
-    )
+    mock_featured([featured_item(i, f"Игра {i}", 100000, None) for i in range(1, 9)])
 
     assert len(await steam.top_sellers(country="KZ", limit=3)) == 3
 

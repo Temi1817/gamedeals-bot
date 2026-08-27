@@ -73,9 +73,7 @@ async def test_regional_price_is_parsed(gog: GogClient) -> None:
 
 @respx.mock
 async def test_country_is_sent(gog: GogClient) -> None:
-    route = respx.get(CATALOG_URL).mock(
-        return_value=httpx.Response(200, json=catalog())
-    )
+    route = respx.get(CATALOG_URL).mock(return_value=httpx.Response(200, json=catalog()))
 
     await gog.offer_for("Cyberpunk 2077", country="KZ")
 
@@ -92,8 +90,9 @@ async def test_only_exact_title_matches(gog: GogClient) -> None:
             200,
             json=catalog(
                 product("Cyberpunk 2077: Ultimate Edition", "15.99", "39.99"),
-                product("Cyberpunk 2077: Phantom Liberty", "8.99", "14.99",
-                        product_type="dlc"),
+                product(
+                    "Cyberpunk 2077: Phantom Liberty", "8.99", "14.99", product_type="dlc"
+                ),
                 KZ_CYBERPUNK,
             ),
         )
@@ -145,9 +144,7 @@ async def test_title_match_ignores_case_and_spaces(gog: GogClient) -> None:
 @respx.mock
 async def test_no_discount_hides_old_price(gog: GogClient) -> None:
     respx.get(CATALOG_URL).mock(
-        return_value=httpx.Response(
-            200, json=catalog(product("Hades", "24.99", "24.99"))
-        )
+        return_value=httpx.Response(200, json=catalog(product("Hades", "24.99", "24.99")))
     )
 
     found = await gog.offer_for("Hades", country="KZ")
@@ -176,9 +173,7 @@ async def test_broken_payload_does_not_raise(gog: GogClient) -> None:
 @respx.mock
 async def test_missing_price_block(gog: GogClient) -> None:
     broken = {"title": "Cyberpunk 2077", "productType": "game"}
-    respx.get(CATALOG_URL).mock(
-        return_value=httpx.Response(200, json=catalog(broken))
-    )
+    respx.get(CATALOG_URL).mock(return_value=httpx.Response(200, json=catalog(broken)))
 
     assert await gog.offer_for("Cyberpunk 2077", country="KZ") is None
 

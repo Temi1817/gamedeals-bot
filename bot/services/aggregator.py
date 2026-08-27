@@ -442,14 +442,10 @@ class Aggregator:
             offers = await self._convert_all(offers, currency)
             shops = [o for o in offers if not o.is_reseller]
             if shops:
-                result.append(
-                    Deal(game=game, offer=min(shops, key=lambda o: o.sort_key))
-                )
+                result.append(Deal(game=game, offer=min(shops, key=lambda o: o.sort_key)))
         return result
 
-    async def _steam_batch(
-        self, games: list[Game], country: str
-    ) -> dict[int, Offer]:
+    async def _steam_batch(self, games: list[Game], country: str) -> dict[int, Offer]:
         """Цены Steam на весь список одним запросом."""
         appids = [g.steam_appid for g in games if g.steam_appid]
         if not appids:
@@ -503,8 +499,7 @@ class Aggregator:
             return await self._deals_from_cheapshark(max_price, min_cut, currency)
 
         converted = [
-            Deal(game=d.game, offer=await self._convert(d.offer, currency))
-            for d in deals
+            Deal(game=d.game, offer=await self._convert(d.offer, currency)) for d in deals
         ]
         return converted, next_offset
 
@@ -524,16 +519,13 @@ class Aggregator:
     ) -> tuple[list[Deal], int | None]:
         usd_max = await self._to_source_currency(max_price, currency)
         try:
-            deals = await self.cheapshark.deals(
-                upper_price=usd_max, min_savings=min_cut
-            )
+            deals = await self.cheapshark.deals(upper_price=usd_max, min_savings=min_cut)
         except Exception as exc:
             log.warning("cheapshark_deals_failed", error=str(exc))
             return [], None
 
         converted = [
-            Deal(game=d.game, offer=await self._convert(d.offer, currency))
-            for d in deals
+            Deal(game=d.game, offer=await self._convert(d.offer, currency)) for d in deals
         ]
         return converted, None
 

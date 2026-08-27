@@ -90,9 +90,7 @@ class SteamClient:
                 log.warning("steam_prices_failed", error=str(exc), appids=chunk)
         return result
 
-    async def _prices_chunk(
-        self, appids: list[int], country: str
-    ) -> dict[int, Offer]:
+    async def _prices_chunk(self, appids: list[int], country: str) -> dict[int, Offer]:
         ids = ",".join(str(a) for a in appids)
         key = f"steam:prices:{country}:{ids}"
 

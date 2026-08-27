@@ -106,9 +106,7 @@ async def cmd_start(message: Message, user: User) -> None:
 
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
-    await message.answer(
-        HELP, disable_web_page_preview=True, reply_markup=main_menu()
-    )
+    await message.answer(HELP, disable_web_page_preview=True, reply_markup=main_menu())
 
 
 @router.message(Command("settings"))
@@ -209,9 +207,7 @@ async def toggle_shop(
     await session.flush()
 
     if isinstance(callback.message, Message):
-        await callback.message.edit_reply_markup(
-            reply_markup=shops_keyboard(selected)
-        )
+        await callback.message.edit_reply_markup(reply_markup=shops_keyboard(selected))
     await callback.answer("Все магазины" if not selected else f"Выбрано: {len(selected)}")
 
 

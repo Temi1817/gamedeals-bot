@@ -71,9 +71,7 @@ def watchlist_keyboard(items: list[tuple[int, str]]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for watch_id, title in items:
         label = title if len(title) <= 40 else title[:37] + "…"
-        builder.button(
-            text=f"🗑 {label}", callback_data=UnwatchCB(watch_id=watch_id)
-        )
+        builder.button(text=f"🗑 {label}", callback_data=UnwatchCB(watch_id=watch_id))
     builder.adjust(1)
     return builder.as_markup()
 

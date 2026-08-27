@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Один прогон на ветку: новый пуш отменяет предыдущий, незачем занимать
+# раннеры проверкой кода, который уже устарел.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 — минимальная заявленная версия, 3.12 — на которой ведётся
+        # разработка. Обе должны оставаться зелёными.
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Установить зависимости
+        run: pip install -r requirements-dev.txt
+
+      - name: Линтер
+        run: ruff check .
+
+      - name: Формат
+        run: ruff format --check .
+
+      - name: Типы
+        run: mypy
+
+      - name: Тесты
+        # Тесты работают на замоканных ответах, сеть им не нужна
+        run: pytest
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Собрать образ
+        # Проверяем только сборку: запускать бот в CI нечем — нужен токен
+        run: docker build -t gamedeals-bot:ci .

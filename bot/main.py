@@ -145,9 +145,7 @@ async def main() -> None:
     services = build_services(settings)
     dp = create_dispatcher(settings, services)
 
-    scheduler = setup_scheduler(
-        bot, dp["sessionmaker"], services.aggregator, settings
-    )
+    scheduler = setup_scheduler(bot, dp["sessionmaker"], services.aggregator, settings)
     scheduler.start()
 
     try:

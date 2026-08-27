@@ -185,9 +185,7 @@ def epic_element(
             }
         },
         "promotions": {
-            "promotionalOffers": (
-                [{"promotionalOffers": current}] if current else []
-            ),
+            "promotionalOffers": ([{"promotionalOffers": current}] if current else []),
             "upcomingPromotionalOffers": (
                 [{"promotionalOffers": upcoming}] if upcoming else []
             ),

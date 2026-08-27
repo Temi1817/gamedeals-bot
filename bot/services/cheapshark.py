@@ -138,9 +138,7 @@ class CheapSharkClient:
         key = f"cheapshark:game:{game_id}"
 
         async def fetch() -> dict[str, Any]:
-            data = await self.api.get_json(
-                f"{BASE_URL}/games", params={"id": game_id}
-            )
+            data = await self.api.get_json(f"{BASE_URL}/games", params={"id": game_id})
             return data if isinstance(data, dict) else {}
 
         raw = await self.cache.get_or_set(key, self.price_ttl, fetch)

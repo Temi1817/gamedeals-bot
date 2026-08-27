@@ -138,9 +138,7 @@ async def _send_card(
 # --------------------------------------------------------------------------- #
 # сохранение замеров
 # --------------------------------------------------------------------------- #
-async def _remember(
-    session: AsyncSession, details: GameDetails, country: str
-) -> None:
+async def _remember(session: AsyncSession, details: GameDetails, country: str) -> None:
     """Кладёт игру и текущие цены в базу.
 
     На этих замерах потом строится «История цены» и работает джоба
@@ -173,9 +171,7 @@ async def _remember(
         )
 
 
-async def _is_watched(
-    session: AsyncSession, user: User, details: GameDetails
-) -> bool:
+async def _is_watched(session: AsyncSession, user: User, details: GameDetails) -> bool:
     stored = await GameRepo(session).find(
         itad_id=details.game.itad_id,
         steam_appid=details.game.steam_appid,
@@ -275,9 +271,7 @@ async def on_watch_pressed(
 
     await callback.answer()
     if isinstance(callback.message, Message):
-        await callback.message.edit_reply_markup(
-            reply_markup=watch_target_keyboard(game)
-        )
+        await callback.message.edit_reply_markup(reply_markup=watch_target_keyboard(game))
 
 
 @router.callback_query(WatchTargetCB.filter())

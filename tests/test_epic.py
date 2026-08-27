@@ -153,9 +153,7 @@ async def test_slug_falls_back_to_product_slug(epic: EpicClient) -> None:
 
     games = await epic.free_games()
 
-    assert games[0].url == (
-        "https://store.epicgames.com/ru/p/thems-fightin-herds"
-    )
+    assert games[0].url == ("https://store.epicgames.com/ru/p/thems-fightin-herds")
 
 
 @respx.mock
@@ -251,7 +249,9 @@ class TestRegionalPrices:
             [
                 storefront_node("Dead by Daylight", 620000, 248000),
                 storefront_node(
-                    "Dead by Daylight - Alien Chapter Pack", 370500, 185200,
+                    "Dead by Daylight - Alien Chapter Pack",
+                    370500,
+                    185200,
                     offer_type="ADD_ON",
                 ),
             ]

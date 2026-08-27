@@ -91,9 +91,7 @@ PRICES_RESPONSE = [
 
 @respx.mock
 async def test_search_parses_games(itad: ItadClient) -> None:
-    respx.get(SEARCH_URL).mock(
-        return_value=httpx.Response(200, json=SEARCH_RESPONSE)
-    )
+    respx.get(SEARCH_URL).mock(return_value=httpx.Response(200, json=SEARCH_RESPONSE))
 
     games = await itad.search("Cyberpunk 2077")
 
@@ -119,9 +117,7 @@ async def test_search_sends_api_key(itad: ItadClient) -> None:
 @respx.mock
 async def test_lookup_by_appid(itad: ItadClient) -> None:
     respx.get(LOOKUP_URL).mock(
-        return_value=httpx.Response(
-            200, json={"found": True, "game": SEARCH_RESPONSE[0]}
-        )
+        return_value=httpx.Response(200, json={"found": True, "game": SEARCH_RESPONSE[0]})
     )
 
     game = await itad.lookup_by_appid(1091500)
@@ -141,9 +137,7 @@ async def test_lookup_not_found(itad: ItadClient) -> None:
 
 @respx.mock
 async def test_prices_sorted_and_parsed(itad: ItadClient) -> None:
-    respx.post(PRICES_URL).mock(
-        return_value=httpx.Response(200, json=PRICES_RESPONSE)
-    )
+    respx.post(PRICES_URL).mock(return_value=httpx.Response(200, json=PRICES_RESPONSE))
 
     offers = (await itad.prices([GAME_ID], country="KZ"))[GAME_ID]
 

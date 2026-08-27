@@ -83,9 +83,7 @@ async def test_backoff_grows(api: ApiClient, no_sleep: list[float]) -> None:
 
 
 @respx.mock
-async def test_gives_up_after_max_retries(
-    api: ApiClient, no_sleep: list[float]
-) -> None:
+async def test_gives_up_after_max_retries(api: ApiClient, no_sleep: list[float]) -> None:
     route = respx.get(URL).mock(return_value=httpx.Response(503))
 
     with pytest.raises(ApiError) as exc_info:

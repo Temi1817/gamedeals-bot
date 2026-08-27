@@ -45,23 +45,17 @@ async def on_search_button(message: Message) -> None:
 
 
 @router.message(F.text == BTN_DEALS)
-async def on_deals_button(
-    message: Message, user: User, aggregator: Aggregator
-) -> None:
+async def on_deals_button(message: Message, user: User, aggregator: Aggregator) -> None:
     await cmd_deals(message, user, aggregator)
 
 
 @router.message(F.text == BTN_TOP)
-async def on_top_button(
-    message: Message, user: User, aggregator: Aggregator
-) -> None:
+async def on_top_button(message: Message, user: User, aggregator: Aggregator) -> None:
     await cmd_top(message, user, aggregator)
 
 
 @router.message(F.text == BTN_FREE)
-async def on_free_button(
-    message: Message, user: User, aggregator: Aggregator
-) -> None:
+async def on_free_button(message: Message, user: User, aggregator: Aggregator) -> None:
     await cmd_free(message, user, aggregator)
 
 
@@ -79,6 +73,4 @@ async def on_settings_button(message: Message, user: User) -> None:
 
 @router.message(F.text == BTN_HELP)
 async def on_help_button(message: Message) -> None:
-    await message.answer(
-        HELP, disable_web_page_preview=True, reply_markup=main_menu()
-    )
+    await message.answer(HELP, disable_web_page_preview=True, reply_markup=main_menu())

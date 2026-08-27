@@ -9,6 +9,7 @@ from typing import NamedTuple
 
 NBSP = " "
 
+
 class _Format(NamedTuple):
     symbol: str
     digits: int  # знаков после запятой

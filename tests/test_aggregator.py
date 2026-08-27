@@ -124,9 +124,7 @@ class FakeSteam:
     async def search(self, query: str, limit: int = 5) -> list[Game]:
         return [Game(title="Из Steam", steam_appid=APPID)]
 
-    async def prices(
-        self, appids: list[int], country: str = "KZ"
-    ) -> dict[int, Offer]:
+    async def prices(self, appids: list[int], country: str = "KZ") -> dict[int, Offer]:
         return {appids[0]: self._offer} if self._offer else {}
 
 
@@ -159,9 +157,7 @@ class FakeRates:
     def __init__(self, available: bool = True) -> None:
         self.available = available
 
-    async def convert(
-        self, amount: Decimal, source: str, target: str
-    ) -> Decimal | None:
+    async def convert(self, amount: Decimal, source: str, target: str) -> Decimal | None:
         source, target = source.upper(), target.upper()
         if source == target:
             return amount
@@ -330,9 +326,7 @@ class TestGameDetails:
         assert details.offers[0].price == Decimal("17.99")
 
     async def test_steam_price_absent_leaves_itad_entry(self) -> None:
-        agg = build(
-            itad=FakeItad([itad_offer("Steam", "59.99")]), steam=FakeSteam(None)
-        )
+        agg = build(itad=FakeItad([itad_offer("Steam", "59.99")]), steam=FakeSteam(None))
 
         details = await agg.game_details(CYBERPUNK)
 
