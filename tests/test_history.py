@@ -16,6 +16,7 @@ from bot.services.itad import BASE_URL, ItadClient
 from bot.services.models import PricePoint
 from bot.utils import cards
 from bot.utils.formatting import NBSP
+from bot.utils.formatting import verdict as cards_verdict
 
 HISTORY_URL = f"{BASE_URL}/games/history/v2"
 GAME_ID = "018d937f-2997-7131-b8b9-7c8af4825fa8"
@@ -236,3 +237,53 @@ class TestHistoryCard:
         text = cards.price_history("X", [point(1, "100")], "KZT")
 
         assert "Скидки бывают" not in text
+
+
+class TestHistoryWindow:
+    """Окно истории: год оказался слишком узким для давних игр."""
+
+    @respx.mock
+    async def test_default_window_is_three_years(self, itad: ItadClient) -> None:
+        route = respx.get(HISTORY_URL).mock(
+            return_value=httpx.Response(200, json=[])
+        )
+
+        await itad.price_history(GAME_ID)
+
+        since = route.calls.last.request.url.params["since"]
+        start = datetime.fromisoformat(since.replace("Z", "+00:00"))
+        years = (datetime.now(UTC) - start).days / 365
+        assert 2.5 < years < 3.5
+
+
+class TestVerdictStaleLow:
+    """У Grand Theft Auto V минимум поставлен в 2018 году, и сравнение
+    с ним давало «дороже на 1609%» — формально верно, толку ноль."""
+
+    def test_old_low_is_not_compared(self) -> None:
+        old = datetime.now(UTC) - timedelta(days=8 * 365)
+
+        text = cards_verdict(Decimal("18389"), Decimal("1076"), low_at=old)
+
+        assert "1609" not in text
+        assert "цены изменились" in text
+
+    def test_recent_low_is_compared(self) -> None:
+        recent = datetime.now(UTC) - timedelta(days=30)
+
+        text = cards_verdict(Decimal("11000"), Decimal("10000"), low_at=recent)
+
+        assert "+10%" in text
+
+    def test_without_date_behaves_as_before(self) -> None:
+        assert "исторический минимум" in cards_verdict(
+            Decimal("100"), Decimal("100")
+        )
+
+    def test_naive_datetime_does_not_crash(self) -> None:
+        """История приходит с зоной, но чужим данным лучше не доверять."""
+        naive = datetime.now() - timedelta(days=8 * 365)
+
+        assert "цены изменились" in cards_verdict(
+            Decimal("18389"), Decimal("1076"), low_at=naive
+        )

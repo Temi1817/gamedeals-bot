@@ -28,7 +28,7 @@ from typing import Any
 from bot.services.cheapshark import CheapSharkClient
 from bot.services.epic import EpicClient
 from bot.services.gog import GogClient
-from bot.services.itad import ItadClient
+from bot.services.itad import HISTORY_DAYS, HISTORY_DAYS_FALLBACK, ItadClient
 from bot.services.models import (
     CHEAPSHARK,
     EPIC,
@@ -299,7 +299,7 @@ class Aggregator:
         game: Game,
         country: str = "KZ",
         *,
-        days: int = 365,
+        days: int = HISTORY_DAYS,
         own: list[PricePoint] | None = None,
         limit: int = 12,
     ) -> list[PricePoint]:
@@ -316,17 +316,34 @@ class Aggregator:
         points: list[PricePoint] = list(own or [])
 
         if self.itad is not None and game.itad_id:
-            try:
-                raw = await self.itad.price_history(
-                    game.itad_id, country=country, days=days
-                )
-            except Exception as exc:
-                log.warning("itad_history_failed", error=str(exc), game=game.title)
-                raw = []
+            raw = await self._itad_history(game, country, days)
             for point in raw:
                 points.append(await self._convert_point(point, currency))
 
         return _dedupe_by_day(points)[-limit:]
+
+    async def _itad_history(
+        self, game: Game, country: str, days: int
+    ) -> list[PricePoint]:
+        """История с расширением окна, если в основном пусто.
+
+        У давно не продающихся игр последняя скидка может быть двухлетней
+        давности — пустой график в таком случае вводит в заблуждение.
+        """
+        assert self.itad is not None
+        for window in (days, HISTORY_DAYS_FALLBACK):
+            try:
+                points = await self.itad.price_history(
+                    game.itad_id or "", country=country, days=window
+                )
+            except Exception as exc:
+                log.warning("itad_history_failed", error=str(exc), game=game.title)
+                return []
+            if points:
+                return points
+            if window >= HISTORY_DAYS_FALLBACK:
+                break
+        return []
 
     async def _convert_point(self, point: PricePoint, currency: str) -> PricePoint:
         if point.currency.upper() == currency.upper():

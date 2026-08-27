@@ -185,6 +185,7 @@ def game_card(details: GameDetails, country: str = "KZ") -> str:
                 best.sort_key,
                 low.price if low is not None else None,
                 low.currency if low is not None else best.currency,
+                low_at=low.at if low is not None else None,
             )
         )
 

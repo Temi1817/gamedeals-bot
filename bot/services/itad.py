@@ -39,6 +39,14 @@ BASE_URL = "https://api.isthereanydeal.com"
 # ITAD ограничивает размер батча; больше сотни за раз всё равно не нужно
 BATCH_SIZE = 50
 
+# Окно истории по умолчанию. Года мало: у Grand Theft Auto V последняя
+# скидка была за 20 месяцев до сегодня, и за год график выходил пустым.
+# Десять лет тоже плохо — по той же игре это 1415 точек и медленный ответ.
+HISTORY_DAYS = 3 * 365
+# Если в основном окне пусто, пробуем шире: «скидок не было» должно
+# означать, что их правда не было, а не что мы мелко посмотрели.
+HISTORY_DAYS_FALLBACK = 6 * 365
+
 # Рейтинги. `waitlisted` — сколько людей ждут скидку, для бота о ценах это
 # полезнее всего; `popular` и `collected` — общая популярность.
 TOP_ENDPOINTS = {
@@ -403,7 +411,7 @@ class ItadClient:
         return deals, int(next_offset) if next_offset is not None else None
 
     async def price_history(
-        self, game_id: str, country: str = "KZ", days: int = 365
+        self, game_id: str, country: str = "KZ", days: int = HISTORY_DAYS
     ) -> list[PricePoint]:
         """История изменений цены по всем магазинам.
 

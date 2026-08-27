@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import html
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import NamedTuple
 
@@ -59,6 +59,14 @@ def format_date(value: datetime | None) -> str:
     return value.strftime("%d.%m.%Y") if value else "—"
 
 
+def _years_since(moment: datetime) -> float:
+    """Сколько лет прошло. Наивную дату считаем UTC — история приходит
+    с зоной, но защищаться от чужих данных дешевле, чем ловить падение."""
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return (datetime.now(UTC) - moment).days / 365.25
+
+
 def escape(text: str | None) -> str:
     """Экранирование под `parse_mode=HTML` в Telegram."""
     return html.escape(text or "", quote=False)
@@ -81,16 +89,30 @@ def percent_diff(current: Decimal, baseline: Decimal) -> int:
     return int(((current - baseline) / baseline * 100).to_integral_value())
 
 
+# После стольких лет минимум перестаёт быть ориентиром: у Grand Theft
+# Auto V он поставлен ключевым реселлером в 2018 году, и сравнение с ним
+# давало «дороже минимума на 1609%» — формально верно, на деле бесполезно.
+STALE_LOW_YEARS = 3
+
+
 def verdict(
     current: Decimal | None,
     historical_low: Decimal | None,
     currency: str = "KZT",
+    low_at: datetime | None = None,
 ) -> str:
     """Вердикт «стоит ли брать сейчас» — сравнение с историческим минимумом."""
     if current is None:
         return "Нет данных о цене."
     if historical_low is None or historical_low <= 0:
         return "Исторического минимума пока нет — сравнивать не с чем."
+
+    if low_at is not None and _years_since(low_at) >= STALE_LOW_YEARS:
+        return (
+            f"📅 Минимум {format_price(historical_low, currency)} был "
+            f"{format_date(low_at)} — с тех пор цены изменились, "
+            "сравнивать с ним смысла мало."
+        )
 
     diff = percent_diff(current, historical_low)
     low = format_price(historical_low, currency)
