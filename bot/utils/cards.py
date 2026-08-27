@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from itertools import pairwise
 
-from bot.services.models import Deal, FreeGame, GameDetails, Offer
+from bot.services.models import Deal, FreeGame, GameDetails, Offer, PricePoint
 from bot.utils.formatting import (
     escape,
     format_date,
@@ -20,6 +21,9 @@ CAPTION_LIMIT = 1024
 
 MEDALS = ("🥇", "🥈", "🥉")
 RULE = "━━━━━━━━━━━━━━━"
+
+# Ширина столбика в графике истории
+BAR_WIDTH = 8
 
 # Сколько магазинов показываем помимо лучшего. У популярных игр их бывает
 # полтора десятка с почти одинаковой ценой — сплошной стеной это не читается.
@@ -224,39 +228,71 @@ def search_results(query: str, count: int) -> str:
     )
 
 
-def price_history(
-    title: str,
-    points: list[tuple[datetime, Decimal, str]],
-    currency: str,
-) -> str:
-    """Текстовый график: столбики из блоков, самая дешёвая точка — короткая."""
-    header = f"📉 <b>История цены</b>\n🎮 {escape(title)}"
+def price_history(title: str, points: list[PricePoint], currency: str) -> str:
+    """График скидок: дата, столбик, цена, процент и магазин.
+
+    Столбик показывает цену относительно разброса: чем короче, тем дешевле.
+    Точки на историческом минимуме помечены 🔻.
+    """
+    header = f"📉 <b>История скидок</b>\n🎮 {escape(title)}"
 
     if not points:
         return (
             f"{header}\n{RULE}\n\n"
-            "⏳ Я слежу за этой игрой недавно и пока не накопил замеров.\n"
-            "Загляни через пару дней — история появится сама."
+            "⏳ По этой игре скидок пока не было — или она слишком новая.\n"
+            "Нажми 🔔, и я напишу, когда цена упадёт."
         )
 
-    prices = [p for _, p, _ in points]
+    prices = [p.price for p in points]
     low, high = min(prices), max(prices)
     span = high - low
 
     lines = [header, RULE, ""]
-    for moment, price, _ in points[-14:]:
-        # без разброса цен все столбики одинаковой средней длины
-        filled = int((price - low) / span * 10) if span > 0 else 5
-        bar = "█" * max(1, filled) + "░" * (10 - max(1, filled))
-        mark = "🔻" if price == low else "  "
+    for point in points:
+        share = (point.price - low) / span if span > 0 else Decimal("0.5")
+        filled = max(1, int(share * BAR_WIDTH))
+        bar = "█" * filled + "░" * (BAR_WIDTH - filled)
+
+        price = format_price(point.price, currency)
+        amount = escape(price) if point.exact else f"≈{escape(price)}"
+        cut = f" −{point.cut}%" if point.cut else ""
+        shop = f" · {escape(point.shop)}" if point.shop else ""
+        mark = " 🔻" if point.price == low else ""
+
         lines.append(
-            f"<code>{format_date(moment)} {bar}</code> "
-            f"{escape(format_price(price, currency))} {mark}"
+            f"<code>{point.at.strftime('%d.%m.%y')} {bar}</code> "
+            f"{amount}{cut}{shop}{mark}"
         )
 
     lines.append("")
-    lines.append(f"🔻 Минимум по замерам: <b>{escape(format_price(low, currency))}</b>")
+    lines.append(f"🔻 Минимум: <b>{escape(format_price(low, currency))}</b>")
+
+    if hint := _history_hint(points):
+        lines.append(hint)
+
+    if any(not p.exact for p in points):
+        lines.append("")
+        lines.append("<i>≈ — международный прайс, пересчитан по курсу</i>")
+
     return "\n".join(lines)
+
+
+def _history_hint(points: list[PricePoint]) -> str:
+    """Подсказка о том, как часто игра уходит в скидку."""
+    if len(points) < 3:
+        return ""
+
+    gaps = [(later.at - earlier.at).days for earlier, later in pairwise(points)]
+    gaps = [g for g in gaps if g > 0]
+    if not gaps:
+        return ""
+
+    average = sum(gaps) // len(gaps)
+    since = (datetime.now(UTC) - points[-1].at).days
+
+    word = _plural(average, "день", "дня", "дней")
+    tail = f", последняя {since} {_plural(since, 'день', 'дня', 'дней')} назад"
+    return f"<i>Скидки бывают примерно раз в {average} {word}{tail}</i>"
 
 
 def deals_list(deals: list[Deal], page: int, currency: str) -> str:

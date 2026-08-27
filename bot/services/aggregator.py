@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import date
 from decimal import Decimal
 from typing import Any
 
@@ -43,6 +44,7 @@ from bot.services.models import (
     GameDetails,
     HistoricalLow,
     Offer,
+    PricePoint,
     Source,
 )
 from bot.services.rates import RatesClient
@@ -290,6 +292,56 @@ class Aggregator:
             log.warning("steam_price_failed", error=str(exc))
             return None
         return prices.get(game.steam_appid)
+
+    # -------------------------------------------------------------- история
+    async def price_history(
+        self,
+        game: Game,
+        country: str = "KZ",
+        *,
+        days: int = 365,
+        own: list[PricePoint] | None = None,
+        limit: int = 12,
+    ) -> list[PricePoint]:
+        """История скидок: данные ITAD плюс наши собственные замеры.
+
+        ITAD знает историю за годы, но международную — её пересчитываем и
+        помечаем приблизительной. Наши замеры по Steam, GOG и Epic уже в
+        валюте региона и идут как точные.
+
+        Одна дата — одна точка: в один день скидка обычно приходит сразу в
+        несколько магазинов, и четыре одинаковые строки только мешают.
+        """
+        currency = _currency_for(country, self.default_currency)
+        points: list[PricePoint] = list(own or [])
+
+        if self.itad is not None and game.itad_id:
+            try:
+                raw = await self.itad.price_history(
+                    game.itad_id, country=country, days=days
+                )
+            except Exception as exc:
+                log.warning("itad_history_failed", error=str(exc), game=game.title)
+                raw = []
+            for point in raw:
+                points.append(await self._convert_point(point, currency))
+
+        return _dedupe_by_day(points)[-limit:]
+
+    async def _convert_point(self, point: PricePoint, currency: str) -> PricePoint:
+        if point.currency.upper() == currency.upper():
+            return point
+        converted = await self.rates.convert(point.price, point.currency, currency)
+        if converted is None:
+            return point
+        return PricePoint(
+            at=point.at,
+            price=converted,
+            currency=currency,
+            cut=point.cut,
+            shop=point.shop,
+            exact=False,
+        )
 
     # ------------------------------------------------------------------ топ
     async def store_top(
@@ -550,6 +602,21 @@ def replace_offer(
         converted_currency=currency,
         converted_regular_price=converted_regular,
     )
+
+
+def _dedupe_by_day(points: list[PricePoint]) -> list[PricePoint]:
+    """По одной точке на дату — самой дешёвой, а из равных точная важнее."""
+    best: dict[date, PricePoint] = {}
+    for point in points:
+        day = point.at.date()
+        current = best.get(day)
+        if current is None:
+            best[day] = point
+            continue
+        # ниже цена побеждает; при равной цене выигрывает точная
+        if (point.price, not point.exact) < (current.price, not current.exact):
+            best[day] = point
+    return [best[day] for day in sorted(best)]
 
 
 def _merge(base: Game, extra: Game) -> Game:

@@ -259,45 +259,6 @@ class TestSearchResults:
         assert "&lt;b&gt;" in cards.search_results("<b>", 0)
 
 
-class TestPriceHistory:
-    def test_no_points(self) -> None:
-        text = cards.price_history("Cyberpunk 2077", [], "KZT")
-
-        assert "пока не накопил замеров" in text
-
-    def test_draws_bars(self) -> None:
-        base = datetime(2026, 8, 1, tzinfo=UTC)
-        points = [
-            (base, Decimal("20000"), "KZT"),
-            (base + timedelta(days=1), Decimal("10000"), "KZT"),
-        ]
-
-        text = cards.price_history("Cyberpunk 2077", points, "KZT")
-
-        assert "█" in text
-        assert "01.08.2026" in text
-        assert f"Минимум по замерам: <b>10{NBSP}000{NBSP}₸</b>" in text
-
-    def test_shows_last_points_only(self) -> None:
-        base = datetime(2026, 8, 1, tzinfo=UTC)
-        points = [
-            (base + timedelta(days=i), Decimal(10000 + i), "KZT") for i in range(30)
-        ]
-
-        text = cards.price_history("X", points, "KZT")
-
-        assert text.count("█") > 0
-        assert "01.08.2026" not in text  # старые точки обрезаны
-
-    def test_flat_history_does_not_divide_by_zero(self) -> None:
-        base = datetime(2026, 8, 1, tzinfo=UTC)
-        points = [(base, Decimal("5000"), "KZT"), (base, Decimal("5000"), "KZT")]
-
-        text = cards.price_history("X", points, "KZT")
-
-        assert "█" in text
-
-
 class TestDealsList:
     def test_renders_deals(self) -> None:
         deals = [

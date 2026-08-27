@@ -21,7 +21,7 @@ from bot.keyboards.games import (
     watch_target_keyboard,
 )
 from bot.services.aggregator import Aggregator, _currency_for
-from bot.services.models import GameDetails
+from bot.services.models import GameDetails, PricePoint
 from bot.services.shops import parse_selection
 from bot.utils import cards
 from bot.utils.formatting import format_price
@@ -211,13 +211,27 @@ async def on_history(
     )
     currency = _currency_for(user.country, "KZT")
 
-    points: list[tuple[object, Decimal, str]] = []
+    # Наши замеры уже в валюте региона и сняты у самих витрин, поэтому
+    # идут как точные. Историю за годы добавит ITAD, но международную.
+    own: list[PricePoint] = []
     if stored is not None:
-        history = await SnapshotRepo(session).history(stored.id, currency)
-        points = [(s.checked_at, s.price, s.currency) for s in history]
+        for snapshot in await SnapshotRepo(session).history(stored.id, currency):
+            if snapshot.cut > 0:
+                own.append(
+                    PricePoint(
+                        at=snapshot.checked_at,
+                        price=snapshot.price,
+                        currency=snapshot.currency,
+                        cut=snapshot.cut,
+                        shop=snapshot.shop.name if snapshot.shop else None,
+                        exact=True,
+                    )
+                )
+
+    points = await aggregator.price_history(game, country=user.country, own=own)
 
     await callback.message.answer(
-        cards.price_history(game.title, points, currency),  # type: ignore[arg-type]
+        cards.price_history(game.title, points, currency),
         disable_web_page_preview=True,
     )
 

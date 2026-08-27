@@ -15,13 +15,21 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from bot.services.cache import TTLCache
 from bot.services.http import ApiClient
-from bot.services.models import ITAD, Deal, Game, HistoricalLow, Offer, Shop
+from bot.services.models import (
+    ITAD,
+    Deal,
+    Game,
+    HistoricalLow,
+    Offer,
+    PricePoint,
+    Shop,
+)
 from bot.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -92,6 +100,32 @@ def _deal_filter(
         filters["steamCount"] = {"min": MIN_REVIEWS, "max": None}
         filters["steamPerc"] = {"min": MIN_SCORE, "max": 100}
     return filters
+
+
+def _history_point(entry: Any) -> PricePoint | None:
+    """Одна запись из `/games/history/v2`."""
+    if not isinstance(entry, dict):
+        return None
+
+    at = _dt(entry.get("timestamp"))
+    deal = entry.get("deal")
+    # deal == null означает, что игру сняли с продажи
+    if at is None or not isinstance(deal, dict):
+        return None
+
+    price = _price(deal.get("price"))
+    if price is None:
+        return None
+    amount, currency = price
+
+    shop = entry.get("shop")
+    return PricePoint(
+        at=at,
+        price=amount,
+        currency=currency,
+        cut=int(deal.get("cut") or 0),
+        shop=str(shop.get("name")) if isinstance(shop, dict) else None,
+    )
 
 
 def _dt(value: Any) -> datetime | None:
@@ -367,6 +401,41 @@ class ItadClient:
 
         next_offset = raw.get("nextOffset") if raw.get("hasMore") else None
         return deals, int(next_offset) if next_offset is not None else None
+
+    async def price_history(
+        self, game_id: str, country: str = "KZ", days: int = 365
+    ) -> list[PricePoint]:
+        """История изменений цены по всем магазинам.
+
+        Без параметра `since` ITAD отдаёт только последние три месяца,
+        поэтому дату начала указываем всегда.
+
+        В ответе лежат все события, включая возврат к полной цене и снятие
+        игры с продажи (`deal: null`). Для графика оставляем только начала
+        скидок — иначе он превращается в пилу из нулевых значений.
+        """
+        since = (datetime.now(UTC) - timedelta(days=days)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        key = f"itad:history:{country}:{game_id}:{days}"
+
+        async def fetch() -> list[dict[str, Any]]:
+            data = await self.api.get_json(
+                f"{BASE_URL}/games/history/v2",
+                params=self._params(id=game_id, country=country, since=since),
+            )
+            return data if isinstance(data, list) else []
+
+        raw = await self.cache.get_or_set(key, self.price_ttl, fetch)
+
+        points: list[PricePoint] = []
+        for entry in raw:
+            point = _history_point(entry)
+            if point is not None and point.cut > 0:
+                points.append(point)
+
+        points.sort(key=lambda p: p.at)
+        return points
 
     # ---------------------------------------------------------------- топы
     async def top_games(self, kind: str = "waitlisted", limit: int = 10) -> list[Game]:

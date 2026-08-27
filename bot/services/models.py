@@ -124,6 +124,23 @@ class HistoricalLow:
 
 
 @dataclass(frozen=True, slots=True)
+class PricePoint:
+    """Момент, когда цена изменилась.
+
+    `exact` означает цену в валюте региона, полученную у самой витрины.
+    История ITAD международная и приходит пересчитанной — такие точки
+    помечаются приблизительными.
+    """
+
+    at: datetime
+    price: Decimal
+    currency: str
+    cut: int = 0
+    shop: str | None = None
+    exact: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class GameDetails:
     """Всё, что нужно для карточки игры."""
 
