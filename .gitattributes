@@ -1,0 +1,9 @@
+# Разработка идёт на Windows, CI и прод — на Linux. Без этого правила
+# в репозиторий могут утечь CRLF, и Docker-сборка споткнётся о них.
+* text=auto eol=lf
+
+# Бинарники не трогать переводами строк
+*.png binary
+*.jpg binary
+*.ico binary
+*.db binary

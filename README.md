@@ -94,7 +94,7 @@ GreenManGaming и остальных: останутся только Steam, Epi
 ```bash
 pip install -r requirements-dev.txt
 
-pytest                  # 316 тестов
+pytest                  # 339 тестов
 ruff check .            # линтер
 mypy                    # строгая типизация
 ```
@@ -107,6 +107,14 @@ python scripts/probe_apis.py itad steam # только выбранные
 `probe_apis.py` дёргает каждый источник живым запросом и печатает сырой
 ответ. Первое, что стоит запустить, если бот вдруг начал врать: скорее
 всего у кого-то поменялась схема.
+
+```bash
+python scripts/users.py                          # локально
+docker compose exec -T bot python scripts/users.py  # на сервере
+```
+
+`users.py` открывает базу только на чтение и показывает, кто пользуется
+ботом и что отслеживает.
 
 ---
 

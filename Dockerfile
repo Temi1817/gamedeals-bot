@@ -14,6 +14,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY bot ./bot
 COPY migrations ./migrations
 COPY alembic.ini ./
+# Служебные скрипты: users.py, probe_apis.py — запускаются через
+# docker compose exec, поэтому должны быть внутри образа
+COPY scripts ./scripts
 
 # База лежит в томе, каталог должен существовать до первого запуска
 RUN mkdir -p /app/data && useradd --create-home --uid 1000 bot \
