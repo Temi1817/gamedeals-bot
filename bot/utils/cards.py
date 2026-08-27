@@ -283,13 +283,17 @@ def _history_hint(points: list[PricePoint]) -> str:
     if len(points) < 3:
         return ""
 
-    gaps = [(later.at - earlier.at).days for earlier, later in pairwise(points)]
+    # Агрегатор приводит моменты к UTC, но рендер — чистая функция и может
+    # получить что угодно: наивная дата здесь уронила бы всё сообщение.
+    moments = [p.at if p.at.tzinfo else p.at.replace(tzinfo=UTC) for p in points]
+
+    gaps = [(later - earlier).days for earlier, later in pairwise(moments)]
     gaps = [g for g in gaps if g > 0]
     if not gaps:
         return ""
 
     average = sum(gaps) // len(gaps)
-    since = (datetime.now(UTC) - points[-1].at).days
+    since = (datetime.now(UTC) - moments[-1]).days
 
     word = _plural(average, "день", "дня", "дней")
     tail = f", последняя {since} {_plural(since, 'день', 'дня', 'дней')} назад"

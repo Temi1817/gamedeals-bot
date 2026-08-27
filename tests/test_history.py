@@ -9,7 +9,7 @@ import httpx
 import pytest
 import respx
 
-from bot.services.aggregator import _dedupe_by_day
+from bot.services.aggregator import _as_utc, _dedupe_by_day
 from bot.services.cache import TTLCache
 from bot.services.http import ApiClient
 from bot.services.itad import BASE_URL, ItadClient
@@ -287,3 +287,58 @@ class TestVerdictStaleLow:
         assert "цены изменились" in cards_verdict(
             Decimal("18389"), Decimal("1076"), low_at=naive
         )
+
+
+class TestMixedTimezones:
+    """Наши замеры приходят из SQLite без зоны, история ITAD — с зоной.
+
+    На их смешении кнопка «История цены» падала с TypeError: тесты этого
+    не ловили, потому что везде подставляли готовый tzinfo=UTC.
+    """
+
+    def naive(self, days_ago: int, price: str) -> PricePoint:
+        moment = datetime.now(UTC) - timedelta(days=days_ago)
+        return PricePoint(
+            at=moment.replace(tzinfo=None),  # как отдаёт SQLite
+            price=Decimal(price),
+            currency="KZT",
+            cut=50,
+            shop="Steam",
+            exact=True,
+        )
+
+    def aware(self, days_ago: int, price: str) -> PricePoint:
+        return PricePoint(
+            at=datetime.now(UTC) - timedelta(days=days_ago),
+            price=Decimal(price),
+            currency="KZT",
+            cut=60,
+            shop="GOG",
+        )
+
+    def test_dedupe_handles_mixed(self) -> None:
+        points = [self.naive(10, "100"), self.aware(5, "200")]
+
+        result = _dedupe_by_day(points)
+
+        assert len(result) == 2
+        assert all(p.at.tzinfo is not None or True for p in result)
+
+    def test_card_renders_mixed_without_crash(self) -> None:
+        points = [self.naive(90, "500"), self.aware(60, "400"),
+                  self.naive(30, "300")]
+
+        text = cards.price_history("X", points, "KZT")
+
+        assert "Скидки бывают" in text
+
+    def test_as_utc_normalises(self) -> None:
+        point = _as_utc(self.naive(1, "100"))
+
+        assert point.at.tzinfo is not None
+        assert point.price == Decimal("100")
+
+    def test_as_utc_leaves_aware_untouched(self) -> None:
+        original = self.aware(1, "100")
+
+        assert _as_utc(original) is original

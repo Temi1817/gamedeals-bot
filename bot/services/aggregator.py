@@ -21,7 +21,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import date
+from datetime import UTC, date
 from decimal import Decimal
 from typing import Any
 
@@ -313,12 +313,12 @@ class Aggregator:
         несколько магазинов, и четыре одинаковые строки только мешают.
         """
         currency = _currency_for(country, self.default_currency)
-        points: list[PricePoint] = list(own or [])
+        points: list[PricePoint] = [_as_utc(p) for p in (own or [])]
 
         if self.itad is not None and game.itad_id:
             raw = await self._itad_history(game, country, days)
             for point in raw:
-                points.append(await self._convert_point(point, currency))
+                points.append(_as_utc(await self._convert_point(point, currency)))
 
         return _dedupe_by_day(points)[-limit:]
 
@@ -618,6 +618,25 @@ def replace_offer(
         converted_price=converted,
         converted_currency=currency,
         converted_regular_price=converted_regular,
+    )
+
+
+def _as_utc(point: PricePoint) -> PricePoint:
+    """Приводит момент к UTC с зоной.
+
+    SQLite не хранит смещение, поэтому наши замеры возвращаются наивными,
+    а история ITAD приходит с зоной. Смешивать их нельзя: вычитание таких
+    дат бросает TypeError, и кнопка «История цены» падала на этом.
+    """
+    if point.at.tzinfo is not None:
+        return point
+    return PricePoint(
+        at=point.at.replace(tzinfo=UTC),
+        price=point.price,
+        currency=point.currency,
+        cut=point.cut,
+        shop=point.shop,
+        exact=point.exact,
     )
 
 
