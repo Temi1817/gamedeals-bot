@@ -5,4 +5,4 @@ aiosqlite>=0.22.1
 alembic>=1.14
 APScheduler>=3.11,<4.0
 pydantic-settings>=2.7
-structlog>=24.4
+structlog>=26.1.0
