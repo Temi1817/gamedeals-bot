@@ -45,7 +45,7 @@ NOT_FOUND_CARD = "Не смог собрать карточку: игра про
 # --------------------------------------------------------------------------- #
 @router.message(Command("find"))
 async def cmd_find(
-    message: Message, command: CommandObject, aggregator: Aggregator
+    message: Message, command: CommandObject, user: User, aggregator: Aggregator
 ) -> None:
     query = (command.args or "").strip()
     if not query:
@@ -58,31 +58,35 @@ async def cmd_find(
 
 
 @router.message(F.text & ~F.text.startswith("/"))
-async def on_plain_text(message: Message, aggregator: Aggregator) -> None:
+async def on_plain_text(message: Message, user: User, aggregator: Aggregator) -> None:
     """Любой текст без команды считаем поисковым запросом."""
-    await _run_search(message, (message.text or "").strip(), aggregator)
+    await _run_search(message, (message.text or "").strip(), aggregator, user.country)
 
 
-async def _run_search(message: Message, query: str, aggregator: Aggregator) -> None:
+async def _run_search(
+    message: Message, query: str, aggregator: Aggregator, country: str = "KZ"
+) -> None:
     if len(query) < MIN_QUERY_LENGTH:
         await message.answer(TOO_SHORT)
         return
 
     notice = await message.answer(SEARCHING)
     try:
-        games = await aggregator.search(query, limit=SEARCH_LIMIT)
+        results = await aggregator.search_with_prices(
+            query, country=country, limit=SEARCH_LIMIT
+        )
     finally:
         await notice.delete()
 
-    if not games:
+    if not results:
         await message.answer(cards.search_results(query, 0))
         return
 
     await message.answer(
-        cards.search_results(query, len(games)),
-        reply_markup=search_keyboard(games),
+        cards.search_results(query, len(results)),
+        reply_markup=search_keyboard(results, _currency_for(country, "KZT")),
     )
-    log.info("search_done", query=query, found=len(games))
+    log.info("search_done", query=query, found=len(results))
 
 
 # --------------------------------------------------------------------------- #

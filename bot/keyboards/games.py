@@ -11,7 +11,8 @@ from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from bot.services.models import Game
+from bot.services.models import Game, Offer
+from bot.utils.formatting import format_price
 
 # С запасом: префикс, разделители и служебные поля тоже считаются
 MAX_KEY_LENGTH = 48
@@ -42,14 +43,37 @@ def fits_callback(game: Game) -> bool:
     return len(game.key.encode()) <= MAX_KEY_LENGTH
 
 
-def search_keyboard(games: list[Game]) -> InlineKeyboardMarkup:
-    """Кнопки результатов поиска — по одной на игру."""
+# Длина надписи кнопки. Telegram допускает больше, но на телефоне длинное
+# название переносится и ломает столбик цен.
+TITLE_LIMIT = 34
+
+
+def search_keyboard(
+    results: list[tuple[Game, Offer | None]], currency: str = "KZT"
+) -> InlineKeyboardMarkup:
+    """Кнопки результатов поиска — по одной на игру, с ценой.
+
+    Цена на кнопке решает вполне конкретную беду: по запросу «Grand Theft
+    Auto V» первым идёт снятое с продажи издание за 18 465 ₸, а живое
+    «Enhanced» за 6 921 ₸ — вторым, и по названиям их не различить.
+    """
     builder = InlineKeyboardBuilder()
-    for game in games:
+    for game, offer in results:
         if not fits_callback(game):
             continue
-        title = game.title if len(game.title) <= 60 else game.title[:57] + "…"
-        builder.button(text=title, callback_data=GameCB(key=game.key))
+
+        title = game.title
+        if len(title) > TITLE_LIMIT:
+            title = title[: TITLE_LIMIT - 1] + "…"
+
+        if offer is None:
+            label = f"{title} · нет в продаже"
+        elif offer.is_free:
+            label = f"{title} · бесплатно 🎉"
+        else:
+            label = f"{title} · от {format_price(offer.sort_key, currency)}"
+
+        builder.button(text=label, callback_data=GameCB(key=game.key))
     builder.adjust(1)
     return builder.as_markup()
 

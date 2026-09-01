@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import ClassVar
 
 import pytest
@@ -31,7 +32,7 @@ from bot.keyboards.games import (
     watch_target_keyboard,
     watchlist_keyboard,
 )
-from bot.services.models import KEY_SEP, Game
+from bot.services.models import KEY_SEP, Game, Offer, Shop
 
 # Настоящий ID из ответа ITAD — на нём всё и ломалось
 ITAD_ID = "018d937f-2997-7131-b8b9-7c8af4825fa8"
@@ -87,32 +88,61 @@ class TestCallbackPacking:
         assert restored.price == ""
 
 
+def priced(
+    game: Game, price: str | None, free: bool = False
+) -> tuple[Game, Offer | None]:
+    if price is None and not free:
+        return game, None
+    return game, Offer(
+        shop=Shop(id="s", name="Shop", source="itad"),
+        price=Decimal(price or "0"),
+        currency="KZT",
+    )
+
+
 class TestSearchKeyboard:
+    """Цена на кнопке различает издания: «Grand Theft Auto V» за 18 465 ₸
+    и живое «Enhanced» за 6 921 ₸ по названию не отличить."""
+
+    def test_shows_price_on_button(self) -> None:
+        markup = search_keyboard([priced(CYBERPUNK, "8307")])
+
+        assert "Cyberpunk 2077" in markup.inline_keyboard[0][0].text
+        assert "от" in markup.inline_keyboard[0][0].text
+
+    def test_marks_games_without_offers(self) -> None:
+        markup = search_keyboard([priced(CYBERPUNK, None)])
+
+        assert "нет в продаже" in markup.inline_keyboard[0][0].text
+
+    def test_marks_free_games(self) -> None:
+        """«от 0 ₸» читается как ошибка, а не как раздача."""
+        markup = search_keyboard([priced(CYBERPUNK, "0", free=True)])
+
+        assert "бесплатно" in markup.inline_keyboard[0][0].text
+        assert "0" not in markup.inline_keyboard[0][0].text.split("·")[1]
+
     def test_builds_button_per_game(self) -> None:
-        games = [
-            CYBERPUNK,
-            Game(title="Cyberpunk 2077: Phantom Liberty", itad_id="018d937f-6ed7"),
+        results = [
+            priced(CYBERPUNK, "8307"),
+            priced(Game(title="Phantom Liberty", itad_id="018d937f-6ed7"), "5000"),
         ]
 
-        markup = search_keyboard(games)
-
-        assert len(markup.inline_keyboard) == 2
-        assert markup.inline_keyboard[0][0].text == "Cyberpunk 2077"
+        assert len(search_keyboard(results).inline_keyboard) == 2
 
     def test_long_title_is_trimmed(self) -> None:
-        game = Game(title="О" * 100, itad_id=ITAD_ID)
+        button = search_keyboard(
+            [priced(Game(title="О" * 100, itad_id=ITAD_ID), "1000")]
+        ).inline_keyboard[0][0]
 
-        button = search_keyboard([game]).inline_keyboard[0][0]
-
-        assert len(button.text) <= 60
-        assert button.text.endswith("…")
+        assert "…" in button.text
 
     def test_skips_games_with_oversized_key(self) -> None:
         """Лучше не показать одну строку, чем уронить весь ответ."""
-        huge = Game(title="Огромный ключ", itad_id="x" * 200)
+        huge = priced(Game(title="Огромный ключ", itad_id="x" * 200), "1000")
 
         assert search_keyboard([huge]).inline_keyboard == []
-        assert len(search_keyboard([huge, CYBERPUNK]).inline_keyboard) == 1
+        assert len(search_keyboard([huge, priced(CYBERPUNK, "1")]).inline_keyboard) == 1
 
     def test_empty_list(self) -> None:
         assert search_keyboard([]).inline_keyboard == []

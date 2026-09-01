@@ -105,6 +105,42 @@ class Aggregator:
 
         return []
 
+    async def search_with_prices(
+        self, query: str, country: str = "KZ", limit: int = 5
+    ) -> list[tuple[Game, Offer | None]]:
+        """Результаты поиска вместе с ориентировочной ценой.
+
+        Без цены выбрать правильный результат невозможно: по запросу
+        «Grand Theft Auto V» первым идёт старое издание за 18 465 ₸, где
+        остался один магазин, а живое «Enhanced» с семью магазинами и
+        ценой 6 921 ₸ — вторым. Отличить их по названию нельзя.
+
+        Цены берём одним батчем у ITAD, без поштучных уточнений у витрин:
+        на кнопке нужен порядок величины, точные цифры покажет карточка.
+        """
+        games = await self.search(query, limit=limit)
+        if not games or self.itad is None:
+            return [(game, None) for game in games]
+
+        currency = _currency_for(country, self.default_currency)
+        ids = [g.itad_id for g in games if g.itad_id]
+
+        try:
+            prices = await self.itad.prices(ids, country=country)
+        except Exception as exc:
+            log.warning("search_prices_failed", error=str(exc), query=query)
+            return [(game, None) for game in games]
+
+        result: list[tuple[Game, Offer | None]] = []
+        for game in games:
+            offers = [o for o in prices.get(game.itad_id or "", []) if not o.is_reseller]
+            if not offers:
+                result.append((game, None))
+                continue
+            cheapest = min(offers, key=lambda o: o.price)
+            result.append((game, await self._convert(cheapest, currency)))
+        return result
+
     async def resolve_game(self, key: str) -> Game | None:
         """Восстанавливает игру по ключу из callback-данных (`Game.key`).
 
