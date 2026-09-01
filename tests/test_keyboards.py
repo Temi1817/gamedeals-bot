@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import pytest
 from aiogram.types import InlineKeyboardMarkup
 
@@ -19,10 +21,14 @@ from bot.keyboards.games import (
     HistoryCB,
     UnwatchCB,
     WatchCB,
+    WatchShopCB,
+    WatchTargetCB,
     deals_keyboard,
     fits_callback,
     game_card_keyboard,
     search_keyboard,
+    watch_shop_keyboard,
+    watch_target_keyboard,
     watchlist_keyboard,
 )
 from bot.services.models import KEY_SEP, Game
@@ -234,3 +240,51 @@ class TestShopsKeyboard:
 
         assert reset.callback_data is not None
         assert ShopCB.unpack(reset.callback_data).key == ""
+
+
+class TestWatchShopKeyboard:
+    """Выбор магазина при подписке. Ключ игры съедает 40 из 64 байт
+    callback_data, поэтому запас проверяем явно."""
+
+    SHOPS: ClassVar[list[tuple[str, str]]] = [
+        ("steam", "Steam"),
+        ("gog", "GOG"),
+        ("gamesplanet", "GamesPlanet"),
+    ]
+
+    def test_offers_any_shop_first(self) -> None:
+        markup = watch_shop_keyboard(CYBERPUNK, self.SHOPS)
+        labels = [b.text for row in markup.inline_keyboard for b in row]
+
+        assert "🌐 Любой магазин" in labels[0]
+        assert any("Steam" in t for t in labels)
+
+    def test_any_shop_has_empty_key(self) -> None:
+        markup = watch_shop_keyboard(CYBERPUNK, self.SHOPS)
+        first = markup.inline_keyboard[0][0]
+
+        assert first.callback_data is not None
+        assert WatchShopCB.unpack(first.callback_data).shop == ""
+
+    def test_without_shops_only_any_and_cancel(self) -> None:
+        markup = watch_shop_keyboard(CYBERPUNK, [])
+        buttons = [b for row in markup.inline_keyboard for b in row]
+
+        assert len(buttons) == 2
+
+    def test_callback_data_fits_limit(self) -> None:
+        markup = watch_shop_keyboard(CYBERPUNK, self.SHOPS)
+
+        for row in markup.inline_keyboard:
+            for button in row:
+                assert button.callback_data is not None
+                assert len(button.callback_data.encode()) <= 64
+
+    def test_target_keyboard_carries_shop(self) -> None:
+        markup = watch_target_keyboard(CYBERPUNK, "gamesplanet")
+        data = [b.callback_data for row in markup.inline_keyboard for b in row]
+
+        targets = [WatchTargetCB.unpack(d) for d in data if d and d.startswith("wt:")]
+        assert targets
+        assert all(t.shop == "gamesplanet" for t in targets)
+        assert all(len(d.encode()) <= 64 for d in data if d)

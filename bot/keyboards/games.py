@@ -138,11 +138,13 @@ class WatchTargetCB(CallbackData, prefix="wt"):
     """Выбор цели по цене кнопками, без набора команды.
 
     `percent` — на сколько ниже текущей цены ждать. 0 означает «любое
-    снижение», то есть цель не задана.
+    снижение», то есть цель не задана. `shop` — магазин, выбранный шагом
+    раньше; пустой означает «любой».
     """
 
     key: str
     percent: int
+    shop: str
 
 
 TOP_KINDS: tuple[tuple[str, str], ...] = (
@@ -164,17 +166,45 @@ def top_keyboard(current: str) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def watch_target_keyboard(game: Game) -> InlineKeyboardMarkup:
+def watch_target_keyboard(game: Game, shop: str = "") -> InlineKeyboardMarkup:
     """Цель по цене одним нажатием вместо «/watch Hades 3000»."""
     builder = InlineKeyboardBuilder()
     builder.button(
-        text="🔔 Любое снижение", callback_data=WatchTargetCB(key=game.key, percent=0)
+        text="🔔 Любое снижение",
+        callback_data=WatchTargetCB(key=game.key, percent=0, shop=shop),
     )
     for percent in TARGET_PERCENTS:
         builder.button(
             text=f"🎯 −{percent}% от текущей",
-            callback_data=WatchTargetCB(key=game.key, percent=percent),
+            callback_data=WatchTargetCB(key=game.key, percent=percent, shop=shop),
         )
     builder.button(text="◀️ Отмена", callback_data=GameCB(key=game.key))
     builder.adjust(1, 3, 1)
+    return builder.as_markup()
+
+
+class WatchShopCB(CallbackData, prefix="ws"):
+    """Магазин для конкретного отслеживания. Пустой ключ — любой."""
+
+    key: str
+    shop: str
+
+
+def watch_shop_keyboard(game: Game, shops: list[tuple[str, str]]) -> InlineKeyboardMarkup:
+    """Выбор магазина при подписке.
+
+    Показываем только магазины, где игра реально продаётся: предлагать
+    следить за ценой там, где её нет, бессмысленно.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="🌐 Любой магазин", callback_data=WatchShopCB(key=game.key, shop="")
+    )
+    for shop_key, title in shops:
+        builder.button(
+            text=f"🏬 {title}",
+            callback_data=WatchShopCB(key=game.key, shop=shop_key),
+        )
+    builder.button(text="◀️ Отмена", callback_data=GameCB(key=game.key))
+    builder.adjust(1, 2, 2, 2, 1)
     return builder.as_markup()

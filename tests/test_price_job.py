@@ -9,8 +9,9 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from bot.services.models import CHEAPSHARK, ITAD, STEAM, Offer, Shop
-from bot.services.shops import filter_offers, parse_selection
+from bot.db.models import User, Watch
+from bot.jobs.price_checker import pick_offer
+from bot.services.models import CHEAPSHARK, ITAD, STEAM, Game, GameDetails, Offer, Shop
 
 
 def offer(name: str, price: str, source: str = ITAD, reseller: bool = False) -> Offer:
@@ -22,11 +23,19 @@ def offer(name: str, price: str, source: str = ITAD, reseller: bool = False) -> 
     )
 
 
-def pick(offers: list[Offer], preferred: str) -> Offer | None:
-    """Тот же отбор, что делает джоба: фильтр магазинов, затем минимум."""
-    chosen = filter_offers(offers, parse_selection(preferred))
-    shops = [o for o in chosen if not o.is_reseller]
-    return min(shops, key=lambda o: o.sort_key) if shops else None
+def pick(offers: list[Offer], preferred: str = "", watch_shop: str = "") -> Offer | None:
+    """Отбор, который делает джоба: магазин отслеживания, затем настройки."""
+    watch = Watch(
+        user_id=1,
+        game_id=1,
+        target_price=None,
+        currency="KZT",
+        notify_any_drop=True,
+        shop_key=watch_shop,
+    )
+    watch.user = User(tg_id=1, country="KZ", preferred_shops=preferred)
+    details = GameDetails(game=Game(title="X"), offers=offers)
+    return pick_offer(details, watch)
 
 
 OFFERS = [
@@ -78,3 +87,43 @@ class TestShopFilterInNotifications:
 
     def test_empty_offers(self) -> None:
         assert pick([], "steam") is None
+
+
+class TestPerWatchShop:
+    """Магазин, выбранный при подписке, важнее общего фильтра настроек."""
+
+    def test_watch_shop_wins_over_cheapest(self) -> None:
+        picked = pick(OFFERS, watch_shop="steam")
+
+        assert picked is not None
+        assert picked.shop.name == "Steam"
+        assert picked.price == Decimal("6000")
+
+    def test_watch_shop_wins_over_settings(self) -> None:
+        """В настройках GOG, но на эту игру подписался в Steam."""
+        picked = pick(OFFERS, preferred="gog", watch_shop="steam")
+
+        assert picked is not None
+        assert picked.shop.name == "Steam"
+
+    def test_falls_back_when_shop_absent(self) -> None:
+        """Магазина в выдаче нет — молчать нельзя, иначе бот замолкает
+        навсегда и пользователь не понимает почему."""
+        picked = pick(OFFERS, watch_shop="microsoft")
+
+        assert picked is not None
+        assert picked.shop.name == "Fanatical"
+
+    def test_empty_watch_shop_uses_settings(self) -> None:
+        picked = pick(OFFERS, preferred="steam", watch_shop="")
+
+        assert picked is not None
+        assert picked.shop.name == "Steam"
+
+    def test_reseller_not_picked_even_if_chosen(self) -> None:
+        offers = [*OFFERS, offer("Ключи", "100", CHEAPSHARK, reseller=True)]
+
+        picked = pick(offers, watch_shop="")
+
+        assert picked is not None
+        assert picked.is_reseller is False

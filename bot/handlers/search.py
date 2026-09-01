@@ -15,14 +15,16 @@ from bot.keyboards.games import (
     GameCB,
     HistoryCB,
     WatchCB,
+    WatchShopCB,
     WatchTargetCB,
     game_card_keyboard,
     search_keyboard,
+    watch_shop_keyboard,
     watch_target_keyboard,
 )
 from bot.services.aggregator import Aggregator, _currency_for
-from bot.services.models import GameDetails, PricePoint
-from bot.services.shops import parse_selection
+from bot.services.models import GameDetails, Offer, PricePoint
+from bot.services.shops import KNOWN_SHOPS, parse_selection, shop_key, title_for
 from bot.utils import cards
 from bot.utils.formatting import format_price
 from bot.utils.logging import get_logger
@@ -270,8 +272,66 @@ async def on_watch_pressed(
         return
 
     await callback.answer()
+    if not isinstance(callback.message, Message):
+        return
+
+    # Сначала магазин: следить за ценой там, где игры нет, бессмысленно,
+    # поэтому список берём из самой карточки.
+    details = await aggregator.game_details(
+        game, country=user.country, shops=parse_selection(user.preferred_shops)
+    )
+    await callback.message.edit_reply_markup(
+        reply_markup=watch_shop_keyboard(game, _watchable_shops(details))
+    )
+
+
+def _offer_in_shop(details: GameDetails, shop: str) -> Offer | None:
+    """Предложение конкретного магазина из карточки."""
+    if not shop:
+        return None
+    for offer in details.offers:
+        if not offer.is_reseller and shop_key(offer.shop.name) == shop:
+            return offer
+    return None
+
+
+def _watchable_shops(details: GameDetails) -> list[tuple[str, str]]:
+    """Магазины, где игра действительно продаётся.
+
+    Только известные: у незнакомых ключ строится из названия и может не
+    влезть в callback_data. Реселлеров не предлагаем — это не покупка
+    в магазине.
+    """
+    known = {shop.key for shop in KNOWN_SHOPS}
+    seen: dict[str, str] = {}
+    for offer in details.offers:
+        if offer.is_reseller:
+            continue
+        key = shop_key(offer.shop.name)
+        if key in known and key not in seen:
+            seen[key] = title_for(key)
+    return list(seen.items())
+
+
+@router.callback_query(WatchShopCB.filter())
+async def on_watch_shop(
+    callback: CallbackQuery,
+    callback_data: WatchShopCB,
+    aggregator: Aggregator,
+) -> None:
+    """Магазин выбран — спрашиваем, какую цену ждать."""
+    game = await aggregator.resolve_game(callback_data.key)
+    if game is None:
+        await callback.answer(NOT_FOUND_CARD, show_alert=True)
+        return
+
+    where = title_for(callback_data.shop) if callback_data.shop else "любом магазине"
+    await callback.answer(f"Слежу в {where}")
+
     if isinstance(callback.message, Message):
-        await callback.message.edit_reply_markup(reply_markup=watch_target_keyboard(game))
+        await callback.message.edit_reply_markup(
+            reply_markup=watch_target_keyboard(game, callback_data.shop)
+        )
 
 
 @router.callback_query(WatchTargetCB.filter())
@@ -299,10 +359,12 @@ async def on_watch_target(
         details = await aggregator.game_details(
             game, country=user.country, shops=parse_selection(user.preferred_shops)
         )
-        best = details.best_offer
-        if best is not None:
+        # процент считаем от цены выбранного магазина: цель «−30% от
+        # Steam» и «−30% от самого дешёвого» — разные суммы
+        base = _offer_in_shop(details, callback_data.shop) or details.best_offer
+        if base is not None:
             share = Decimal(100 - callback_data.percent) / Decimal(100)
-            target = (best.sort_key * share).quantize(Decimal("1"))
+            target = (base.sort_key * share).quantize(Decimal("1"))
 
     games = GameRepo(session)
     stored = await games.find(
@@ -324,12 +386,14 @@ async def on_watch_target(
         target_price=target,
         currency=currency,
         notify_any_drop=target is None,
+        shop_key=callback_data.shop,
     )
 
+    where = f" в {title_for(callback_data.shop)}" if callback_data.shop else ""
     if target is not None:
-        note = f"Жду {format_price(target, currency)}"
+        note = f"Жду {format_price(target, currency)}{where}"
     else:
-        note = "Напишу при любом снижении"
+        note = f"Напишу при любом снижении{where}"
     await callback.answer(f"🔔 {note}")
 
     if isinstance(callback.message, Message):

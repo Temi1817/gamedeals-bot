@@ -23,7 +23,7 @@ from bot.db.models import Watch
 from bot.db.repo import ShopRepo, SnapshotRepo, WatchRepo
 from bot.services.aggregator import Aggregator
 from bot.services.models import Game, GameDetails, Offer
-from bot.services.shops import filter_offers, parse_selection
+from bot.services.shops import filter_offers, parse_selection, shop_key
 from bot.utils.formatting import escape, format_price, link
 from bot.utils.logging import get_logger
 
@@ -78,6 +78,27 @@ def notification_text(game: Game, offer: Offer, watch: Watch) -> str:
         lines.append(f"Твоя цель была {escape(goal)}")
 
     return "\n".join(lines)
+
+
+def pick_offer(details: GameDetails, watch: Watch) -> Offer | None:
+    """За какой ценой следит это отслеживание.
+
+    Магазин, выбранный при подписке, важнее общего фильтра из настроек:
+    пользователь сказал «следить в Steam» именно для этой игры. Если
+    выбранного магазина в выдаче нет, молчать нельзя — откатываемся на
+    общий фильтр, иначе бот просто перестанет писать.
+    """
+    shops = [o for o in details.offers if not o.is_reseller]
+    if not shops:
+        return None
+
+    if watch.shop_key:
+        exact = [o for o in shops if shop_key(o.shop.name) == watch.shop_key]
+        if exact:
+            return min(exact, key=lambda o: o.sort_key)
+
+    allowed = filter_offers(shops, parse_selection(watch.user.preferred_shops))
+    return min(allowed, key=lambda o: o.sort_key) if allowed else None
 
 
 async def _save_snapshots(
@@ -165,16 +186,9 @@ async def _check_game(
             continue  # источник не ответил по этой стране
         details = found
 
-        # Выбор магазинов из настроек обязан действовать и здесь: экран
-        # настроек обещает, что невыбранные пропадут «из карточек, скидок
-        # и уведомлений».
-        chosen = filter_offers(
-            details.offers, parse_selection(watch.user.preferred_shops)
-        )
-        shops = [o for o in chosen if not o.is_reseller]
-        if not shops:
+        offer = pick_offer(details, watch)
+        if offer is None:
             continue
-        offer = min(shops, key=lambda o: o.sort_key)
 
         async with sessionmaker() as session:
             fresh = await WatchRepo(session).get(watch.id)

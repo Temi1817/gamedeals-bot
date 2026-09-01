@@ -176,6 +176,7 @@ class WatchRepo:
         target_price: Decimal | None,
         currency: str = "KZT",
         notify_any_drop: bool = False,
+        shop_key: str = "",
     ) -> tuple[Watch, bool]:
         """Возвращает (запись, создана_ли_новая). Повтор обновляет цель."""
         watch = await self.session.scalar(
@@ -185,6 +186,7 @@ class WatchRepo:
             watch.target_price = target_price
             watch.currency = currency
             watch.notify_any_drop = notify_any_drop
+            watch.shop_key = shop_key
             watch.last_notified_price = None  # цель сменилась — счётчик сбрасываем
             await self.session.flush()
             return watch, False
@@ -195,6 +197,7 @@ class WatchRepo:
             target_price=target_price,
             currency=currency,
             notify_any_drop=notify_any_drop,
+            shop_key=shop_key,
         )
         self.session.add(watch)
         await self.session.flush()

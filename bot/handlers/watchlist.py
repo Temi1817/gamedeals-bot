@@ -14,6 +14,7 @@ from bot.db.repo import GameRepo, SnapshotRepo, WatchRepo
 from bot.keyboards.games import UnwatchCB, watchlist_keyboard
 from bot.services.aggregator import Aggregator, _currency_for
 from bot.services.models import Game
+from bot.services.shops import title_for
 from bot.utils.formatting import escape, format_price, link
 from bot.utils.logging import get_logger
 
@@ -169,7 +170,12 @@ async def cmd_list(message: Message, user: User, session: AsyncSession) -> None:
         else:
             goal = "любое снижение"
 
-        lines.append(f"• <b>{escape(game.title)}</b> — {current} · {escape(goal)}")
+        where = title_for(watch.shop_key) if watch.shop_key else "любой магазин"
+
+        lines.append(
+            f"• <b>{escape(game.title)}</b> — {current}\n"
+            f"  🏬 {escape(where)} · {escape(goal)}"
+        )
         buttons.append((watch.id, game.title))
 
     lines.append("")

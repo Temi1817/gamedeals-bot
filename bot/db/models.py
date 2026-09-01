@@ -113,6 +113,10 @@ class Watch(Base):
     # true — уведомлять о любом падении ниже последней замеченной цены,
     # даже если цель ещё не достигнута
     notify_any_drop: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Канонический ключ магазина для этого отслеживания («steam», «gog»).
+    # Пусто — следим за лучшей ценой по всем магазинам, которые выбраны
+    # у пользователя в настройках.
+    shop_key: Mapped[str] = mapped_column(String(32), default="")
     # цена, о которой уже уведомили: повторное письмо шлём только если стало
     # дешевле неё — иначе бот будет спамить каждый час
     last_notified_price: Mapped[Decimal | None] = mapped_column(Money, default=None)
