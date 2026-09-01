@@ -302,6 +302,23 @@ class TestWatchShopKeyboard:
 
         assert len(buttons) == 2
 
+    def test_layout_survives_many_shops(self) -> None:
+        """У популярных игр магазинов бывает десяток — раскладка не должна
+        разъезжаться."""
+        many = [(f"s{i}", f"Магазин {i}") for i in range(10)]
+
+        rows = watch_shop_keyboard(CYBERPUNK, many).inline_keyboard
+
+        assert len(rows[0]) == 1  # «любой магазин» отдельной строкой
+        assert len(rows[-1]) == 1  # «отмена» отдельной строкой
+        assert all(len(r) == 2 for r in rows[1:-1])  # магазины по два
+        assert sum(len(r) for r in rows) == 12
+
+    def test_odd_number_of_shops(self) -> None:
+        rows = watch_shop_keyboard(CYBERPUNK, self.SHOPS).inline_keyboard
+
+        assert sum(len(r) for r in rows) == len(self.SHOPS) + 2
+
     def test_callback_data_fits_limit(self) -> None:
         markup = watch_shop_keyboard(CYBERPUNK, self.SHOPS)
 

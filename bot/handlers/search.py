@@ -279,11 +279,11 @@ async def on_watch_pressed(
     if not isinstance(callback.message, Message):
         return
 
-    # Сначала магазин: следить за ценой там, где игры нет, бессмысленно,
-    # поэтому список берём из самой карточки.
-    details = await aggregator.game_details(
-        game, country=user.country, shops=parse_selection(user.preferred_shops)
-    )
+    # Список магазинов берём БЕЗ фильтра из настроек: он глобальный, а
+    # здесь пользователь выбирает магазин для одной игры. С фильтром
+    # «только Steam» нельзя было подписаться на GOG, даже когда там
+    # вдвое дешевле.
+    details = await aggregator.game_details(game, country=user.country)
     await callback.message.edit_reply_markup(
         reply_markup=watch_shop_keyboard(game, _watchable_shops(details))
     )
@@ -360,9 +360,9 @@ async def on_watch_target(
     target: Decimal | None = None
 
     if callback_data.percent:
-        details = await aggregator.game_details(
-            game, country=user.country, shops=parse_selection(user.preferred_shops)
-        )
+        # без фильтра настроек: процент считается от цены выбранного
+        # магазина, а он мог быть отфильтрован
+        details = await aggregator.game_details(game, country=user.country)
         # процент считаем от цены выбранного магазина: цель «−30% от
         # Steam» и «−30% от самого дешёвого» — разные суммы
         base = _offer_in_shop(details, callback_data.shop) or details.best_offer

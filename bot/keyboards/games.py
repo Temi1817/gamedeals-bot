@@ -217,18 +217,32 @@ class WatchShopCB(CallbackData, prefix="ws"):
 def watch_shop_keyboard(game: Game, shops: list[tuple[str, str]]) -> InlineKeyboardMarkup:
     """Выбор магазина при подписке.
 
-    Показываем только магазины, где игра реально продаётся: предлагать
-    следить за ценой там, где её нет, бессмысленно.
+    Показываем все магазины, где игра продаётся, в порядке возрастания
+    цены — фильтр из настроек здесь не применяется: он глобальный, а тут
+    выбор для одной игры.
+
+    Ряды собираем вручную: у популярных игр магазинов бывает десяток, и
+    фиксированная раскладка через adjust() на них разъезжается.
     """
     builder = InlineKeyboardBuilder()
-    builder.button(
-        text="🌐 Любой магазин", callback_data=WatchShopCB(key=game.key, shop="")
-    )
-    for shop_key, title in shops:
-        builder.button(
-            text=f"🏬 {title}",
-            callback_data=WatchShopCB(key=game.key, shop=shop_key),
+    builder.row(
+        InlineKeyboardButton(
+            text="🌐 Любой магазин",
+            callback_data=WatchShopCB(key=game.key, shop="").pack(),
         )
-    builder.button(text="◀️ Отмена", callback_data=GameCB(key=game.key))
-    builder.adjust(1, 2, 2, 2, 1)
+    )
+
+    buttons = [
+        InlineKeyboardButton(
+            text=f"🏬 {title}",
+            callback_data=WatchShopCB(key=game.key, shop=shop_key).pack(),
+        )
+        for shop_key, title in shops
+    ]
+    for index in range(0, len(buttons), 2):
+        builder.row(*buttons[index : index + 2])
+
+    builder.row(
+        InlineKeyboardButton(text="◀️ Отмена", callback_data=GameCB(key=game.key).pack())
+    )
     return builder.as_markup()
