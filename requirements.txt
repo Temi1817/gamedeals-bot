@@ -4,5 +4,5 @@ SQLAlchemy[asyncio]>=2.0.52,<2.1
 aiosqlite>=0.22.1
 alembic>=1.14
 APScheduler>=3.11,<4.0
-pydantic-settings>=2.7
+pydantic-settings>=2.15.0
 structlog>=24.4
