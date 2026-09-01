@@ -23,6 +23,7 @@ from bot.db.models import Watch
 from bot.db.repo import ShopRepo, SnapshotRepo, WatchRepo
 from bot.services.aggregator import Aggregator
 from bot.services.models import Game, GameDetails, Offer
+from bot.services.shops import filter_offers, parse_selection
 from bot.utils.formatting import escape, format_price, link
 from bot.utils.logging import get_logger
 
@@ -139,24 +140,45 @@ async def _check_game(
         image_url=stored.image_url,
     )
 
-    sent = 0
-    for watch in watches:
+    # Цены тянем по одному разу на страну, а не на каждое отслеживание:
+    # пять человек на одну игру давали пять одинаковых запросов.
+    details_by_country: dict[str, GameDetails] = {}
+    for country in {w.user.country for w in watches}:
         try:
-            details = await aggregator.game_details(game, country=watch.user.country)
+            details_by_country[country] = await aggregator.game_details(
+                game, country=country
+            )
         except Exception as exc:
             log.warning("price_check_failed", game=stored.title, error=str(exc))
-            continue
 
-        offer = details.best_offer
-        if offer is None:
+    # Замеры сохраняем полными, без пользовательских фильтров: на них
+    # строится история цен и они общие для всех, кто следит за игрой.
+    async with sessionmaker() as session:
+        for details in details_by_country.values():
+            await _save_snapshots(session, stored.id, details)
+        await session.commit()
+
+    sent = 0
+    for watch in watches:
+        found = details_by_country.get(watch.user.country)
+        if found is None:
+            continue  # источник не ответил по этой стране
+        details = found
+
+        # Выбор магазинов из настроек обязан действовать и здесь: экран
+        # настроек обещает, что невыбранные пропадут «из карточек, скидок
+        # и уведомлений».
+        chosen = filter_offers(
+            details.offers, parse_selection(watch.user.preferred_shops)
+        )
+        shops = [o for o in chosen if not o.is_reseller]
+        if not shops:
             continue
+        offer = min(shops, key=lambda o: o.sort_key)
 
         async with sessionmaker() as session:
-            await _save_snapshots(session, stored.id, details)
-
             fresh = await WatchRepo(session).get(watch.id)
             if fresh is None:
-                await session.commit()
                 continue  # пользователь успел удалить отслеживание
 
             price = offer.sort_key
