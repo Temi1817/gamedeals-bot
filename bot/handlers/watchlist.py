@@ -9,12 +9,12 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.db.models import User
+from bot.db.models import PriceSnapshot, User, Watch
 from bot.db.repo import GameRepo, SnapshotRepo, WatchRepo
 from bot.keyboards.games import UnwatchCB, watchlist_keyboard
 from bot.services.aggregator import Aggregator, _currency_for
-from bot.services.models import Game
-from bot.services.shops import title_for
+from bot.services.models import CHEAPSHARK, Game
+from bot.services.shops import parse_selection, shop_key, title_for
 from bot.utils.formatting import escape, format_price, link
 from bot.utils.logging import get_logger
 
@@ -136,6 +136,53 @@ async def cmd_watch(
     log.info("watch_set", tg_id=user.tg_id, game=game.title, target=str(target))
 
 
+def pick_snapshot(
+    snapshots: list[PriceSnapshot], watch: Watch, preferred: set[str]
+) -> PriceSnapshot | None:
+    """Замер, который показываем в строке этого отслеживания.
+
+    Правило то же, что у джобы уведомлений (`price_checker.pick_offer`):
+    магазин, выбранный при подписке, важнее общего фильтра из настроек.
+    Но отката на чужой магазин здесь нет — именно молчаливая подмена и
+    приводила к тому, что рядом с подписью «Steam» стояла цена Epic.
+    """
+    # ключи реселлеров — не цена магазина, в списке им не место
+    shops = [s for s in snapshots if s.shop.source != CHEAPSHARK]
+    if not shops:
+        return None
+
+    if watch.shop_key:
+        exact = [s for s in shops if shop_key(s.shop.name) == watch.shop_key]
+        # один магазин мог прийти из двух источников — берём дешёвый замер
+        return min(exact, key=lambda s: s.price) if exact else None
+
+    if preferred:
+        allowed = [s for s in shops if shop_key(s.shop.name) in preferred]
+        shops = allowed or shops
+    return min(shops, key=lambda s: s.price)
+
+
+def price_text(snapshot: PriceSnapshot | None, watch: Watch, where: str) -> str:
+    """Цена для строки списка: со скидкой, без скидки или её отсутствие."""
+    if snapshot is None:
+        # по выбранному магазину замера нет — так и пишем, вместо того
+        # чтобы молча подставить цену соседнего
+        if watch.shop_key:
+            return f"в {escape(where)} цены нет"
+        return "цена ещё не замерена"
+
+    price = link(format_price(snapshot.price, snapshot.currency), snapshot.url)
+
+    if snapshot.cut <= 0:
+        return f"{price} · скидки пока нет"
+
+    text = f"{price} · −{snapshot.cut}%"
+    if snapshot.regular_price is not None:
+        was = format_price(snapshot.regular_price, snapshot.currency)
+        text += f" (было {escape(was)})"
+    return text
+
+
 @router.message(Command("list"))
 async def cmd_list(message: Message, user: User, session: AsyncSession) -> None:
     watches = await WatchRepo(session).for_user(user.id)
@@ -148,32 +195,26 @@ async def cmd_list(message: Message, user: User, session: AsyncSession) -> None:
         return
 
     currency = _currency_for(user.country, "KZT")
-    latest = await SnapshotRepo(session).latest_prices(
+    batches = await SnapshotRepo(session).latest_batch(
         [w.game_id for w in watches], currency
     )
+    preferred = parse_selection(user.preferred_shops)
 
     lines = [f"🔔 <b>Отслеживаю {len(watches)}</b>", ""]
     buttons: list[tuple[int, str]] = []
 
     for watch in watches:
         game = watch.game
-        snapshot = latest.get(watch.game_id)
-
-        if snapshot is not None:
-            now = format_price(snapshot.price, snapshot.currency)
-            current = link(now, snapshot.url)
-        else:
-            current = "цена ещё не замерена"
+        where = title_for(watch.shop_key) if watch.shop_key else "любой магазин"
+        snapshot = pick_snapshot(batches.get(watch.game_id, []), watch, preferred)
 
         if watch.target_price is not None:
             goal = f"цель {format_price(watch.target_price, watch.currency)}"
         else:
             goal = "любое снижение"
 
-        where = title_for(watch.shop_key) if watch.shop_key else "любой магазин"
-
         lines.append(
-            f"• <b>{escape(game.title)}</b> — {current}\n"
+            f"• <b>{escape(game.title)}</b> — {price_text(snapshot, watch, where)}\n"
             f"  🏬 {escape(where)} · {escape(goal)}"
         )
         buttons.append((watch.id, game.title))

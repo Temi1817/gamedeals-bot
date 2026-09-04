@@ -290,13 +290,17 @@ class SnapshotRepo:
             return None
         return row[0], row[1]
 
-    async def latest_prices(
+    async def latest_batch(
         self, game_ids: list[int], currency: str
-    ) -> dict[int, PriceSnapshot]:
-        """Последний известный минимум по каждой игре.
+    ) -> dict[int, list[PriceSnapshot]]:
+        """Замеры последнего захода по каждой игре — все магазины сразу.
 
         Нужен для `/list`: дёргать API за каждой строчкой списка дорого,
         а замеры и так обновляет часовая джоба.
+
+        Сводить их к одному минимуму здесь нельзя: список показывает цену
+        того магазина, на который человек подписался, а про `Watch.shop_key`
+        репозиторий не знает. Выбор оставляем вызывающему.
         """
         if not game_ids:
             return {}
@@ -310,18 +314,18 @@ class SnapshotRepo:
             .order_by(desc(PriceSnapshot.checked_at))
         )
 
-        best: dict[int, PriceSnapshot] = {}
-        seen_at: dict[int, datetime] = {}
+        batch: dict[int, list[PriceSnapshot]] = {}
+        started_at: dict[int, datetime] = {}
         for row in rows:
-            previous = seen_at.get(row.game_id)
-            # берём только самый свежий заход, внутри него — минимальную цену
-            if previous is None:
-                seen_at[row.game_id] = row.checked_at
-                best[row.game_id] = row
-            elif (previous - row.checked_at) < timedelta(minutes=5):
-                if row.price < best[row.game_id].price:
-                    best[row.game_id] = row
-        return best
+            first = started_at.get(row.game_id)
+            # заход растянут во времени: магазины опрашиваются подряд, так
+            # что замеры одного прохода расходятся на секунды-минуты
+            if first is None:
+                started_at[row.game_id] = row.checked_at
+                batch[row.game_id] = [row]
+            elif (first - row.checked_at) < timedelta(minutes=5):
+                batch[row.game_id].append(row)
+        return batch
 
     async def prune(self, older_than_days: int = 365) -> int:
         """Чистка старых замеров, чтобы SQLite не пух бесконечно."""
