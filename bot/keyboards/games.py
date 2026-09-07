@@ -12,6 +12,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot.services.models import Game, Offer
+from bot.services.shops import shop_token
 from bot.utils.formatting import format_price
 
 # С запасом: префикс, разделители и служебные поля тоже считаются
@@ -36,6 +37,18 @@ class UnwatchCB(CallbackData, prefix="unwatch"):
 
 class HistoryCB(CallbackData, prefix="hist"):
     key: str
+
+
+class HistoryShopCB(CallbackData, prefix="hs"):
+    """Переключение магазина в истории цен.
+
+    Магазин носим коротким токеном, а не именем: 64 байта `callback_data`
+    почти целиком съедены ключом игры. Пустой токен означает «все
+    магазины».
+    """
+
+    key: str
+    shop: str
 
 
 def fits_callback(game: Game) -> bool:
@@ -86,6 +99,38 @@ def game_card_keyboard(game: Game, *, watched: bool = False) -> InlineKeyboardMa
             callback_data=WatchCB(key=game.key),
         )
         builder.button(text="📉 История цены", callback_data=HistoryCB(key=game.key))
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+# Больше шести переключателей — это стена кнопок под и без того длинным
+# сообщением. Магазины отсортированы по частоте скидок, так что отсекаем
+# хвост, а не что-то важное.
+HISTORY_SHOP_LIMIT = 6
+
+
+def history_keyboard(
+    game: Game, shops: list[tuple[str, str]], selected: str = ""
+) -> InlineKeyboardMarkup:
+    """Переключатели магазинов под историей цен.
+
+    `shops` — только те магазины, что реально встречаются в истории этой
+    игры: кнопка, ведущая в «скидок не было», пользы не приносит.
+    """
+    builder = InlineKeyboardBuilder()
+    if not fits_callback(game) or not shops:
+        return builder.as_markup()
+
+    builder.button(
+        text="✅ Все" if not selected else "Все",
+        callback_data=HistoryShopCB(key=game.key, shop=""),
+    )
+    for key, title in shops[:HISTORY_SHOP_LIMIT]:
+        label = title if len(title) <= TITLE_LIMIT else title[: TITLE_LIMIT - 1] + "…"
+        builder.button(
+            text=f"✅ {label}" if key == selected else label,
+            callback_data=HistoryShopCB(key=game.key, shop=shop_token(key)),
+        )
     builder.adjust(2)
     return builder.as_markup()
 

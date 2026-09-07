@@ -229,15 +229,31 @@ def search_results(query: str, count: int) -> str:
     )
 
 
-def price_history(title: str, points: list[PricePoint], currency: str) -> str:
+def price_history(
+    title: str,
+    points: list[PricePoint],
+    currency: str,
+    only_shop: str | None = None,
+) -> str:
     """График скидок: дата, столбик, цена, процент и магазин.
 
     Столбик показывает цену относительно разброса: чем короче, тем дешевле.
     Точки на историческом минимуме помечены 🔻.
+
+    `only_shop` — название магазина, если список отфильтрован по нему. Тогда
+    магазин уходит в шапку, а из строк пропадает: он у всех одинаковый.
     """
     header = f"📉 <b>История скидок</b>\n🎮 {escape(title)}"
+    if only_shop:
+        header += f"\n🏬 только {escape(only_shop)}"
 
     if not points:
+        if only_shop:
+            return (
+                f"{header}\n{RULE}\n\n"
+                f"⏳ В {escape(only_shop)} эта игра не скидывалась.\n"
+                "Нажми «Все», чтобы посмотреть остальные магазины."
+            )
         return (
             f"{header}\n{RULE}\n\n"
             "⏳ По этой игре скидок пока не было — или она слишком новая.\n"
@@ -257,7 +273,7 @@ def price_history(title: str, points: list[PricePoint], currency: str) -> str:
         price = format_price(point.price, currency)
         amount = escape(price) if point.exact else f"≈{escape(price)}"
         cut = f" −{point.cut}%" if point.cut else ""
-        shop = f" · {escape(point.shop)}" if point.shop else ""
+        shop = f" · {escape(point.shop)}" if point.shop and not only_shop else ""
         mark = " 🔻" if point.price == low else ""
 
         lines.append(

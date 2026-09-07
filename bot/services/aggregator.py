@@ -348,6 +348,24 @@ class Aggregator:
         Одна дата — одна точка: в один день скидка обычно приходит сразу в
         несколько магазинов, и четыре одинаковые строки только мешают.
         """
+        points = await self.price_history_full(game, country, days=days, own=own)
+        return _dedupe_by_day(points)[-limit:]
+
+    async def price_history_full(
+        self,
+        game: Game,
+        country: str = "KZ",
+        *,
+        days: int = HISTORY_DAYS,
+        own: list[PricePoint] | None = None,
+    ) -> list[PricePoint]:
+        """То же самое, но без свёртки по дням.
+
+        Свёртка оставляет по одной точке на дату — самую дешёвую по всем
+        магазинам, и после неё уже не видно, где игра вообще скидывалась.
+        Фильтру по магазину нужен полный набор: Steam может не оказаться
+        ни в одном дне дешевле всех и всё равно иметь свою историю.
+        """
         currency = _currency_for(country, self.default_currency)
         points: list[PricePoint] = [_as_utc(p) for p in (own or [])]
 
@@ -356,7 +374,7 @@ class Aggregator:
             for point in raw:
                 points.append(_as_utc(await self._convert_point(point, currency)))
 
-        return _dedupe_by_day(points)[-limit:]
+        return points
 
     async def _itad_history(
         self, game: Game, country: str, days: int

@@ -12,9 +12,11 @@ ID: Steam у ITAD — `61`, у CheapShark — `1`, у нашего Steam-кли�
 from __future__ import annotations
 
 import re
+from collections import Counter
+from hashlib import blake2s
 from typing import NamedTuple
 
-from bot.services.models import Offer
+from bot.services.models import Offer, PricePoint
 
 # Пробелы, точки и дефисы при сравнении названий отбрасываем: «GOG.com»,
 # «Green Man Gaming» и «GreenManGaming» — один магазин. Буквы оставляем
@@ -106,6 +108,59 @@ def filter_offers(offers: list[Offer], selected: set[str]) -> list[Offer]:
         return offers
     kept = [o for o in offers if shop_key(o.shop.name) in selected]
     return kept or offers
+
+
+def shop_token(key: str) -> str:
+    """Короткий стабильный токен магазина для `callback_data`.
+
+    Имя магазина в callback не влезает: из 64 байт Telegram 48 уже отданы
+    ключу игры, и «gamesplanet» переполняет остаток. Токен обратно не
+    разворачивается — нужный магазин находится сравнением токенов.
+    """
+    return blake2s(key.encode(), digest_size=3).hexdigest()
+
+
+def shops_in(points: list[PricePoint]) -> list[tuple[str, str]]:
+    """Магазины, встречающиеся в истории: (ключ, как показывать).
+
+    Известные идут первыми и в порядке `KNOWN_SHOPS` — он выставлен по
+    важности, а не по алфавиту. Сортировка просто по числу точек этого не
+    даёт: у Spider-Man мелкие ресейлеры скидывают чаще Steam, и Steam
+    вылетал за предел кнопок, хотя ради него всё и затевалось. Остальные
+    магазины — следом, по частоте скидок.
+
+    Имя у известных берём каноническое, у прочих — как пришло из
+    источника, иначе «eTail.Market» на кнопке превратится в «etailmarket».
+    """
+    counts: Counter[str] = Counter()
+    seen: dict[str, str] = {}
+    for point in points:
+        if not point.shop:
+            continue
+        key = shop_key(point.shop)
+        counts[key] += 1
+        seen.setdefault(key, point.shop)
+
+    order = {shop.key: index for index, shop in enumerate(KNOWN_SHOPS)}
+    unknown = len(order)
+
+    def rank(item: tuple[str, int]) -> tuple[int, int, str]:
+        key, count = item
+        # имя приводим к нижнему регистру: иначе «JoyBuggy» встаёт перед
+        # «eTail.Market», потому что заглавная J меньше строчной e
+        return (order.get(key, unknown), -count, seen[key].casefold())
+
+    return [
+        (key, BY_KEY[key].title if key in BY_KEY else seen[key])
+        for key, _ in sorted(counts.items(), key=rank)
+    ]
+
+
+def filter_points(points: list[PricePoint], key: str) -> list[PricePoint]:
+    """Точки истории одного магазина. Пустой ключ — все точки."""
+    if not key:
+        return points
+    return [p for p in points if p.shop and shop_key(p.shop) == key]
 
 
 def itad_shop_ids(selected: set[str], directory: dict[str, object]) -> list[int]:

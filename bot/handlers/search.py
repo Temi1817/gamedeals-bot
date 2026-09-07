@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
 from decimal import Decimal
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,17 +16,27 @@ from bot.db.repo import GameRepo, ShopRepo, SnapshotRepo, WatchRepo
 from bot.keyboards.games import (
     GameCB,
     HistoryCB,
+    HistoryShopCB,
     WatchCB,
     WatchShopCB,
     WatchTargetCB,
     game_card_keyboard,
+    history_keyboard,
     search_keyboard,
     watch_shop_keyboard,
     watch_target_keyboard,
 )
-from bot.services.aggregator import Aggregator, _currency_for
-from bot.services.models import GameDetails, Offer, PricePoint
-from bot.services.shops import KNOWN_SHOPS, parse_selection, shop_key, title_for
+from bot.services.aggregator import Aggregator, _currency_for, _dedupe_by_day
+from bot.services.models import Game, GameDetails, Offer, PricePoint
+from bot.services.shops import (
+    KNOWN_SHOPS,
+    filter_points,
+    parse_selection,
+    shop_key,
+    shop_token,
+    shops_in,
+    title_for,
+)
 from bot.utils import cards
 from bot.utils.formatting import format_price
 from bot.utils.logging import get_logger
@@ -192,20 +204,18 @@ async def _is_watched(session: AsyncSession, user: User, details: GameDetails) -
 # --------------------------------------------------------------------------- #
 # история цены
 # --------------------------------------------------------------------------- #
-@router.callback_query(HistoryCB.filter())
-async def on_history(
-    callback: CallbackQuery,
-    callback_data: HistoryCB,
+# Столько точек влезает в сообщение, не превращая его в простыню.
+HISTORY_LIMIT = 12
+
+
+async def _history_view(
+    game: Game,
     user: User,
     session: AsyncSession,
     aggregator: Aggregator,
-) -> None:
-    await callback.answer()
-
-    game = await aggregator.resolve_game(callback_data.key)
-    if game is None or not isinstance(callback.message, Message):
-        return
-
+    token: str = "",
+) -> tuple[str, InlineKeyboardMarkup]:
+    """Текст и клавиатура истории — общее для первого показа и переключений."""
     stored = await GameRepo(session).find(
         itad_id=game.itad_id,
         steam_appid=game.steam_appid,
@@ -230,12 +240,71 @@ async def on_history(
                     )
                 )
 
-    points = await aggregator.price_history(game, country=user.country, own=own)
+    # Берём историю до свёртки по дням: иначе список магазинов для кнопок
+    # соберётся только из тех, кто в свой день оказался дешевле всех.
+    points = await aggregator.price_history_full(game, country=user.country, own=own)
+    shops = shops_in(points)
 
-    await callback.message.answer(
-        cards.price_history(game.title, points, currency),
-        disable_web_page_preview=True,
+    # Токен в один магазин не разворачивается — ищем его среди тех, что
+    # реально есть в истории. Не нашли (данные обновились) — показываем всё.
+    selected, label = "", None
+    if token:
+        for key, title in shops:
+            if shop_token(key) == token:
+                selected, label = key, title
+                break
+
+    shown = _dedupe_by_day(filter_points(points, selected))[-HISTORY_LIMIT:]
+    return (
+        cards.price_history(game.title, shown, currency, only_shop=label),
+        history_keyboard(game, shops, selected),
     )
+
+
+@router.callback_query(HistoryCB.filter())
+async def on_history(
+    callback: CallbackQuery,
+    callback_data: HistoryCB,
+    user: User,
+    session: AsyncSession,
+    aggregator: Aggregator,
+) -> None:
+    await callback.answer()
+
+    game = await aggregator.resolve_game(callback_data.key)
+    if game is None or not isinstance(callback.message, Message):
+        return
+
+    text, markup = await _history_view(game, user, session, aggregator)
+    await callback.message.answer(
+        text, reply_markup=markup, disable_web_page_preview=True
+    )
+
+
+@router.callback_query(HistoryShopCB.filter())
+async def on_history_shop(
+    callback: CallbackQuery,
+    callback_data: HistoryShopCB,
+    user: User,
+    session: AsyncSession,
+    aggregator: Aggregator,
+) -> None:
+    """Перерисовывает уже показанную историю под выбранный магазин."""
+    await callback.answer()
+
+    game = await aggregator.resolve_game(callback_data.key)
+    if game is None or not isinstance(callback.message, Message):
+        return
+
+    text, markup = await _history_view(
+        game, user, session, aggregator, callback_data.shop
+    )
+    # повторное нажатие на тот же магазин ничего не меняет, а Telegram
+    # отвечает на такую правку ошибкой — молчим
+    with suppress(TelegramBadRequest):
+        await callback.message.edit_text(
+            text, reply_markup=markup, disable_web_page_preview=True
+        )
 
 
 # --------------------------------------------------------------------------- #
