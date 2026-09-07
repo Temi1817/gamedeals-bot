@@ -48,7 +48,7 @@ from bot.services.models import (
     Source,
 )
 from bot.services.rates import RatesClient
-from bot.services.shops import filter_offers, itad_shop_ids
+from bot.services.shops import filter_offers, itad_shop_ids, shop_key
 from bot.services.steam import SteamClient
 from bot.utils.logging import get_logger
 
@@ -371,10 +371,58 @@ class Aggregator:
 
         if self.itad is not None and game.itad_id:
             raw = await self._itad_history(game, country, days)
+
+            # Без steam_appid цену у Steam не спросить, а в истории игра
+            # приходит по ключу ITAD — там его нет. Обогащение кэшируется.
+            regulars = await self._regional_regulars(
+                await self._enrich(game), country, currency
+            )
+
             for point in raw:
+                regular = regulars.get(shop_key(point.shop)) if point.shop else None
+                if regular is not None and point.cut > 0:
+                    rebuilt = _rebuild_point(point, regular, currency)
+                    points.append(_as_utc(rebuilt))
+                    continue
                 points.append(_as_utc(await self._convert_point(point, currency)))
 
         return points
+
+    async def _regional_regulars(
+        self, game: Game, country: str, currency: str
+    ) -> dict[str, Decimal]:
+        """Регулярная цена в валюте региона по магазинам, где мы её знаем.
+
+        История ITAD международная и для Казахстана завышает: ту же
+        распродажу −60% она показывала за ≈10 923 ₸, тогда как в Epic мы
+        своими глазами замерили 9 400 ₸.
+
+        Скидки Steam и Epic процентные и одинаковы во всех регионах, так
+        что «регулярная цена региона × (1 − скидка)» возвращает настоящую
+        сумму. Проверено на этой же игре: 23 499 ₸ × 0.4 = 9 400 ₸.
+
+        Валюту витрины обязательно сверяем с валютой региона. Витрина не
+        всегда торгует в местных деньгах: GOG отдаёт по Cyberpunk доллары,
+        и без проверки $29.99 × 0.4 превращались в «12 ₸».
+
+        Магазины, чью региональную цену спросить не у кого, сюда не
+        попадают и остаются пересчитанными по курсу.
+        """
+        regulars: dict[str, Decimal] = {}
+
+        def remember(key: str, offer: Offer | None) -> None:
+            if offer is None or offer.currency.upper() != currency.upper():
+                return
+            # при активной скидке регулярная лежит отдельно, иначе цена и
+            # есть регулярная
+            regular = offer.regular_price if offer.cut > 0 else offer.price
+            if regular is not None and regular > 0:
+                regulars[key] = regular
+
+        remember("steam", await self._steam_offer(game, country))
+        remember("epic", await self._epic_offer(game, country))
+        remember("gog", await self._gog_offer(game, country))
+        return regulars
 
     async def _itad_history(
         self, game: Game, country: str, days: int
@@ -501,7 +549,11 @@ class Aggregator:
 
     async def _steam_batch(self, games: list[Game], country: str) -> dict[int, Offer]:
         """Цены Steam на весь список одним запросом."""
-        appids = [g.steam_appid for g in games if g.steam_appid]
+        return await self._steam_prices(
+            [g.steam_appid for g in games if g.steam_appid], country
+        )
+
+    async def _steam_prices(self, appids: list[int], country: str) -> dict[int, Offer]:
         if not appids:
             return {}
         try:
@@ -509,6 +561,42 @@ class Aggregator:
         except Exception as exc:
             log.warning("steam_batch_failed", error=str(exc))
             return {}
+
+    async def _steam_appids(self, deals: list[Deal]) -> dict[str, int]:
+        """`itad_id` → Steam appid для тех скидок, что найдены в Steam.
+
+        ITAD не отдаёт appid ни в списке скидок, ни в топе — это отдельно
+        отмечено в `docs/api-notes.md`. Без appid родную цену Steam не
+        спросить, поэтому метаданные приходится дотягивать поштучно.
+
+        Дотягиваем только для строк самого Steam: остальные магазины всё
+        равно не подменяются, платить за них запросом незачем. Запросы идут
+        разом и кэшируются, так что на страницу выходит один поход по сети,
+        а не десять последовательных.
+        """
+        itad = self.itad
+        if itad is None:
+            return {}
+
+        ids = {
+            deal.game.itad_id
+            for deal in deals
+            if deal.game.itad_id
+            and deal.offer.shop.name.casefold().strip() in STEAM_SHOP_NAMES
+        }
+        if not ids:
+            return {}
+
+        async def fetch(game_id: str) -> tuple[str, int | None]:
+            try:
+                info = await itad.info(game_id)
+            except Exception as exc:
+                log.warning("itad_info_failed", error=str(exc), game_id=game_id)
+                return game_id, None
+            return game_id, info.steam_appid if info is not None else None
+
+        found = await asyncio.gather(*(fetch(game_id) for game_id in ids))
+        return {game_id: appid for game_id, appid in found if appid is not None}
 
     async def _epic_map(self, country: str) -> dict[str, Offer]:
         try:
@@ -552,10 +640,53 @@ class Aggregator:
             log.warning("itad_deals_failed", error=str(exc))
             return await self._deals_from_cheapshark(max_price, min_cut, currency)
 
-        converted = [
-            Deal(game=d.game, offer=await self._convert(d.offer, currency)) for d in deals
-        ]
-        return converted, next_offset
+        exact = await self._regional_deals(deals, country, currency, max_price)
+        return exact, next_offset
+
+    async def _regional_deals(
+        self,
+        deals: list[Deal],
+        country: str,
+        currency: str,
+        max_price: Decimal | None,
+    ) -> list[Deal]:
+        """Заменяет международные цены ITAD настоящими ценами витрин.
+
+        Без этого список скидок и карточка одной и той же игры расходились
+        в разы: HITMAN показывался за ≈12 807 ₸, а в Epic стоил 5 184 ₸.
+        Карточка витрины опрашивала давно, список — нет.
+
+        Обходится это двумя запросами на страницу, а не тридцатью: у Steam
+        есть батч по appid, а витрина Epic приходит целиком и лежит в кэше.
+        У GOG батча нет, его строки остаются международными с пометкой ≈.
+        """
+        appids = await self._steam_appids(deals)
+        steam_prices = await self._steam_prices(list(appids.values()), country)
+        epic_prices = await self._epic_map(country)
+
+        result: list[Deal] = []
+        for deal in deals:
+            offer = deal.offer
+            name = offer.shop.name.casefold().strip()
+
+            if name in STEAM_SHOP_NAMES:
+                appid = appids.get(deal.game.itad_id or "")
+                exact = steam_prices.get(appid) if appid is not None else None
+                offer = exact if exact is not None else offer
+            elif name in EPIC_SHOP_NAMES:
+                exact = epic_prices.get(deal.game.title.casefold().strip())
+                offer = exact if exact is not None else offer
+
+            converted = await self._convert(offer, currency)
+
+            # Порог ITAD применял к международной цене. Обычно региональная
+            # ниже, и отсев ничего не трогает, но если витрина оказалась
+            # дороже — показать цену выше запрошенной было бы обманом.
+            if max_price is not None and converted.sort_key > max_price:
+                continue
+
+            result.append(Deal(game=deal.game, offer=converted))
+        return result
 
     async def _itad_shop_ids(self, shops: set[str], country: str) -> list[int]:
         """Выбранные магазины → ID для параметра `shops` у ITAD."""
@@ -686,8 +817,30 @@ def _as_utc(point: PricePoint) -> PricePoint:
     )
 
 
+def _rebuild_point(point: PricePoint, regular: Decimal, currency: str) -> PricePoint:
+    """Цена точки, посчитанная от регулярной цены региона и скидки."""
+    price = (regular * (100 - point.cut) / 100).quantize(Decimal("0.01"))
+    return PricePoint(
+        at=point.at,
+        price=price,
+        currency=currency,
+        cut=point.cut,
+        shop=point.shop,
+        exact=False,
+        rebuilt=True,
+    )
+
+
 def _dedupe_by_day(points: list[PricePoint]) -> list[PricePoint]:
-    """По одной точке на дату — самой дешёвой, а из равных точная важнее."""
+    """По одной точке на дату — самой дешёвой, а из равных достовернее."""
+
+    def rank(point: PricePoint) -> int:
+        # замер своими глазами надёжнее пересчёта от регулярной цены,
+        # а тот — надёжнее пересчёта долларов по курсу
+        if point.exact:
+            return 0
+        return 1 if point.rebuilt else 2
+
     best: dict[date, PricePoint] = {}
     for point in points:
         day = point.at.date()
@@ -695,8 +848,8 @@ def _dedupe_by_day(points: list[PricePoint]) -> list[PricePoint]:
         if current is None:
             best[day] = point
             continue
-        # ниже цена побеждает; при равной цене выигрывает точная
-        if (point.price, not point.exact) < (current.price, not current.exact):
+        # ниже цена побеждает; при равной цене выигрывает достовернее
+        if (point.price, rank(point)) < (current.price, rank(current)):
             best[day] = point
     return [best[day] for day in sorted(best)]
 

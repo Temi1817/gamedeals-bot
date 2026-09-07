@@ -287,11 +287,33 @@ def price_history(
     if hint := _history_hint(points):
         lines.append(hint)
 
-    if any(not p.exact for p in points):
+    if note := _history_note(points):
         lines.append("")
-        lines.append("<i>≈ — международный прайс, пересчитан по курсу</i>")
+        lines.append(note)
 
     return "\n".join(lines)
+
+
+def _history_note(points: list[PricePoint]) -> str:
+    """Чем объяснить знак ≈ у этих точек.
+
+    Приблизительными они бывают по двум разным причинам, и путать их не
+    стоит: пересчёт от регулярной цены магазина заметно ближе к правде,
+    чем пересчёт долларов по курсу.
+    """
+    rebuilt = any(p.rebuilt for p in points)
+    converted = any(not p.exact and not p.rebuilt for p in points)
+
+    if rebuilt and converted:
+        return (
+            "<i>≈ — цену не наблюдали: посчитана от цены магазина "
+            "либо пересчитана по курсу</i>"
+        )
+    if rebuilt:
+        return "<i>≈ — посчитано от нынешней цены магазина и процента скидки</i>"
+    if converted:
+        return "<i>≈ — международный прайс, пересчитан по курсу</i>"
+    return ""
 
 
 def _history_hint(points: list[PricePoint]) -> str:
